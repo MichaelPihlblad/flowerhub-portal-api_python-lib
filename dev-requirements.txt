@@ -3,3 +3,4 @@ pre-commit>=3.4
 ruff>=0.24
 black>=24.12
 isort>=5.12
+pytest>=7.0
