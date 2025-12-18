@@ -1,10 +1,8 @@
-secrets.json
+examples/secrets.json
 .venv
 venv
 __pycache__
 tests/__pycache__
-__pycache__/flowerhub_client.cpython-312.pyc
-__pycache__/run_example.cpython-312.pyc
-__pycache__/simple_run.cpython-312.pyc
+examples/__pycache__
 
 flowerhub_client.egg-info/PKG-INFO

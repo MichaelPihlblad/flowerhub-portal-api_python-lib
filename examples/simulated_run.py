@@ -1,11 +1,17 @@
 """Run a minimal async demo using a fake aiohttp-like session.
 
-This mirrors the previous synchronous `simple_run` but uses the async
+This mirrors the previous synchronous `simulated_run` but uses the async
 client so it remains a small, dependency-free smoke test.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 
+# Add parent directory to path so we can import flowerhub_portal_api_client
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# pylint: disable=wrong-import-position
 from flowerhub_portal_api_client import AsyncFlowerhubClient
 
 
@@ -48,7 +54,10 @@ class DummySession:
             self.cookies["Authentication"] = "jwtaccess-dummy"
             self.cookies["Refresh"] = "jwtrefresh-dummy"
             return DummySession._req_ctx(
-                DummyResp(status=200, json_data={"user": {"assetOwnerId": self.asset_owner_id}})
+                DummyResp(
+                    status=200,
+                    json_data={"user": {"assetOwnerId": self.asset_owner_id}},
+                )
             )
         if url.endswith("/auth/refresh-token"):
             self.cookies["Authentication"] = "jwtaccess-dummy2"
@@ -56,7 +65,10 @@ class DummySession:
         if f"/asset-owner/{self.asset_owner_id}/withAssetId" in url:
             if "Authentication" in self.cookies:
                 return DummySession._req_ctx(
-                    DummyResp(status=200, json_data={"id": self.asset_owner_id, "assetId": self.asset_id})
+                    DummyResp(
+                        status=200,
+                        json_data={"id": self.asset_owner_id, "assetId": self.asset_id},
+                    )
                 )
             return DummySession._req_ctx(DummyResp(status=401))
         if url.endswith(f"/asset/{self.asset_id}"):
@@ -80,6 +92,7 @@ class DummySession:
 def run_demo():
     asset_owner_id = 42
     asset_id = 99
+
     async def _run():
         sess = DummySession(asset_owner_id, asset_id)
         client = AsyncFlowerhubClient(session=sess)
