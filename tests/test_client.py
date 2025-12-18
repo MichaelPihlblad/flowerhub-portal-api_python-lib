@@ -287,3 +287,252 @@ def test_periodic_callback_and_queue():
         client.stop_periodic_asset_fetch()
 
     run(_run())
+
+
+def test_refresh_token_fails_then_retries():
+    """Test 401 with failed refresh-token then 401 again on retry."""
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_owner_id = 42
+    # first attempt returns 401
+    sess.add_response(
+        base + f"/asset-owner/{asset_owner_id}/withAssetId",
+        DummyResp(status=401, json_data=None, text=""),
+    )
+    # refresh attempt fails (500)
+    sess.add_response(
+        base + "/auth/refresh-token",
+        DummyResp(status=500, json_data=None, text=""),
+    )
+    # retry original request also fails (401 again)
+    sess.add_response(
+        base + f"/asset-owner/{asset_owner_id}/withAssetId",
+        DummyResp(status=401, json_data=None, text=""),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        r = await client.async_fetch_asset_id(asset_owner_id)
+        # Should still return the 401 response after failed retry logic
+        assert r.status == 401
+
+    run(_run())
+
+
+def test_refresh_token_updates_asset_owner_id():
+    """Test that 401 refresh successfully updates asset_owner_id from response."""
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    old_aoid = 42
+    new_aoid = 99
+    asset_id = 55
+    # first attempt returns 401
+    sess.add_response(
+        base + f"/asset-owner/{old_aoid}/withAssetId",
+        DummyResp(status=401, json_data=None, text=""),
+    )
+    # refresh returns new assetOwnerId
+    sess.add_response(
+        base + "/auth/refresh-token",
+        DummyResp(
+            status=200,
+            json_data={"user": {"assetOwnerId": new_aoid}},
+            text="{",
+        ),
+    )
+    # retry succeeds
+    sess.add_response(
+        base + f"/asset-owner/{old_aoid}/withAssetId",
+        DummyResp(status=200, json_data={"assetId": asset_id}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_owner_id = old_aoid
+
+    async def _run():
+        await client.async_fetch_asset_id(old_aoid)
+        # asset_owner_id should be updated from refresh response
+        assert client.asset_owner_id == new_aoid
+
+    run(_run())
+
+
+def test_safe_int_with_invalid_input():
+    """Test _safe_int helper with various invalid inputs."""
+    assert AsyncFlowerhubClient._safe_int("not_a_number") is None
+    assert AsyncFlowerhubClient._safe_int(None) is None
+    assert AsyncFlowerhubClient._safe_int([]) is None
+    assert AsyncFlowerhubClient._safe_int("42") == 42
+    assert AsyncFlowerhubClient._safe_int(42.5) == 42
+
+
+def test_safe_float_with_invalid_input():
+    """Test _safe_float helper with various invalid inputs."""
+    assert AsyncFlowerhubClient._safe_float("not_a_float") is None
+    assert AsyncFlowerhubClient._safe_float(None) is None
+    assert AsyncFlowerhubClient._safe_float([]) is None
+    assert AsyncFlowerhubClient._safe_float("3.14") == 3.14
+    assert AsyncFlowerhubClient._safe_float(42) == 42.0
+
+
+def test_parse_agreement_state_with_none():
+    """Test _parse_agreement_state with None and empty dict."""
+    result = AsyncFlowerhubClient._parse_agreement_state({})
+    assert result.stateCategory is None
+    assert result.stateId is None
+    assert result.siteId is None
+    assert result.startDate is None
+    assert result.terminationDate is None
+
+
+def test_parse_electricity_agreement_with_none():
+    """Test _parse_electricity_agreement with None input."""
+    result = AsyncFlowerhubClient._parse_electricity_agreement(None)
+    assert result is None
+
+    result = AsyncFlowerhubClient._parse_electricity_agreement("not_a_dict")
+    assert result is None
+
+    result = AsyncFlowerhubClient._parse_electricity_agreement({})
+    assert result.consumption is None
+    assert result.production is None
+
+
+def test_parse_invoice_line_with_minimal_data():
+    """Test _parse_invoice_line with missing optional fields."""
+    payload = {}
+    result = AsyncFlowerhubClient._parse_invoice_line(payload)
+    assert result.item_id == ""
+    assert result.name == ""
+    assert result.description == ""
+    assert result.price == ""
+    assert result.volume == ""
+    assert result.amount == ""
+    assert result.settlements == []
+
+
+def test_parse_invoices_with_none():
+    """Test _parse_invoices with None and non-list inputs."""
+    assert AsyncFlowerhubClient._parse_invoices(None) is None
+    assert AsyncFlowerhubClient._parse_invoices("not_a_list") is None
+    assert AsyncFlowerhubClient._parse_invoices(42) is None
+
+    result = AsyncFlowerhubClient._parse_invoices([])
+    assert result == []
+
+    result = AsyncFlowerhubClient._parse_invoices([None, {"id": "1"}])
+    assert len(result) == 1
+    assert result[0].id == "1"
+
+
+def test_parse_consumption_with_none():
+    """Test _parse_consumption with None and non-list inputs."""
+    assert AsyncFlowerhubClient._parse_consumption(None) is None
+    assert AsyncFlowerhubClient._parse_consumption("not_a_list") is None
+    assert AsyncFlowerhubClient._parse_consumption(42) is None
+
+    result = AsyncFlowerhubClient._parse_consumption([])
+    assert result == []
+
+    result = AsyncFlowerhubClient._parse_consumption([None, {"site_id": "123"}])
+    assert len(result) == 1
+    assert result[0].site_id == "123"
+
+
+def test_login_with_invalid_response():
+    """Test async_login with malformed response."""
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    sess.add_response(
+        base + "/auth/login",
+        DummyResp(status=200, json_data={"no_user_key": {}}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_login("user", "pass")
+        assert result["status_code"] == 200
+        # asset_owner_id should remain None when user key is missing
+        assert client.asset_owner_id is None
+
+    run(_run())
+
+
+def test_fetch_asset_id_with_invalid_response():
+    """Test async_fetch_asset_id with malformed assetId."""
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 42
+    sess.add_response(
+        base + f"/asset-owner/{aoid}/withAssetId",
+        DummyResp(status=200, json_data={"assetId": "not_a_number"}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        await client.async_fetch_asset_id(aoid)
+        # asset_id should remain None due to failed int conversion
+        assert client.asset_id is None
+
+    run(_run())
+
+
+def test_fetch_asset_with_missing_status():
+    """Test async_fetch_asset with missing flowerHubStatus."""
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 99
+    sess.add_response(
+        base + f"/asset/{asset_id}",
+        DummyResp(
+            status=200,
+            json_data={"id": asset_id},  # missing flowerHubStatus
+            text="{",
+        ),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        await client.async_fetch_asset(asset_id)
+        # flowerhub_status should remain None
+        assert client.flowerhub_status is None
+
+    run(_run())
+
+
+def test_consumption_fetch_missing_asset_owner_id():
+    """Test async_fetch_consumption raises ValueError when asset_owner_id is None."""
+    client = AsyncFlowerhubClient()
+    client.asset_owner_id = None
+
+    async def _run():
+        try:
+            await client.async_fetch_consumption()
+            raised = False
+        except ValueError as e:
+            raised = True
+            assert "asset_owner_id" in str(e)
+        assert raised
+
+    run(_run())
+
+
+def test_readout_sequence_missing_asset_owner_id():
+    """Test async_readout_sequence raises ValueError when asset_owner_id is None."""
+    client = AsyncFlowerhubClient()
+    client.asset_owner_id = None
+
+    async def _run():
+        try:
+            await client.async_readout_sequence()
+            raised = False
+        except ValueError as e:
+            raised = True
+            assert "asset_owner_id" in str(e)
+        assert raised
+
+    run(_run())
