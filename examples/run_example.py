@@ -10,13 +10,18 @@ import asyncio
 import getpass
 import json
 import os
+import sys
 from pathlib import Path
+
+# Add parent directory to path so we can import flowerhub_portal_api_client
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     import aiohttp
 except Exception:  # pragma: no cover - optional dependency
     aiohttp = None
 
+# pylint: disable=wrong-import-position
 from flowerhub_portal_api_client import AsyncFlowerhubClient
 
 

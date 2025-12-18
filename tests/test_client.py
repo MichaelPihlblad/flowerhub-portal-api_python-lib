@@ -1,6 +1,6 @@
 import asyncio
 
-from flowerhub_portal_api_client import FlowerHubStatus
+from flowerhub_portal_api_client import AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
 
 
@@ -290,7 +290,7 @@ def test_periodic_callback_and_queue():
 
 
 def test_refresh_token_fails_then_retries():
-    """Test 401 with failed refresh-token then 401 again on retry."""
+    """Test 401 with failed refresh-token then 401 again on retry raises AuthenticationError."""
     sess = DummySession()
     base = "https://api.portal.flowerhub.se"
     asset_owner_id = 42
@@ -310,14 +310,27 @@ def test_refresh_token_fails_then_retries():
         DummyResp(status=401, json_data=None, text=""),
     )
 
-    client = AsyncFlowerhubClient(base, session=sess)
+    callback_invoked = []
+
+    def auth_failed_callback():
+        callback_invoked.append(True)
+
+    client = AsyncFlowerhubClient(
+        base, session=sess, on_auth_failed=auth_failed_callback
+    )
 
     async def _run():
-        r = await client.async_fetch_asset_id(asset_owner_id)
-        # Should still return the 401 response after failed retry logic
-        assert r.status == 401
+        # Should raise AuthenticationError after failed refresh and retry
+        try:
+            await client.async_fetch_asset_id(asset_owner_id)
+            assert False, "Expected AuthenticationError to be raised"
+        except AuthenticationError as e:
+            assert "refresh failed" in str(e).lower()
+            assert "login again" in str(e).lower()
 
     run(_run())
+    # Verify callback was invoked
+    assert len(callback_invoked) == 1
 
 
 def test_refresh_token_updates_asset_owner_id():

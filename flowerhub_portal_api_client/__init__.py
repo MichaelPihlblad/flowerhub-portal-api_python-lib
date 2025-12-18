@@ -8,6 +8,7 @@ from .async_client import (
     Asset,
     AssetOwner,
     AsyncFlowerhubClient,
+    AuthenticationError,
     Battery,
     ConsumptionRecord,
     ElectricityAgreement,
@@ -22,6 +23,7 @@ from .async_client import (
 
 __all__ = [
     "AsyncFlowerhubClient",
+    "AuthenticationError",
     "FlowerHubStatus",
     "User",
     "LoginResponse",

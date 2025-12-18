@@ -51,6 +51,41 @@ async def main():
 asyncio.run(main())
 ```
 
+## Authentication Error Handling
+
+The client automatically handles token refresh on `401 Unauthorized` responses. If the refresh fails and the request still returns `401`, an `AuthenticationError` is raised, indicating that the user needs to login again.
+
+### Exception-Based Handling
+
+```python
+from flowerhub_portal_api_client import AsyncFlowerhubClient, AuthenticationError
+
+try:
+    await client.async_fetch_asset_id()
+except AuthenticationError:
+    # Token refresh failed, re-authentication required
+    await client.async_login(username, password)
+    await client.async_fetch_asset_id()
+```
+
+### Callback-Based Handling
+
+For Home Assistant integrations or event-driven architectures:
+
+```python
+def on_auth_failed():
+    """Called when authentication fails and re-login is needed."""
+    print("Re-authentication required")
+    # Trigger reauth flow, set flag, etc.
+
+client = AsyncFlowerhubClient(
+    session=session,
+    on_auth_failed=on_auth_failed
+)
+```
+
+See `examples/auth_error_handling.py` for complete examples including Home Assistant patterns.
+
 ## Development Setup
 
 For contributors and local development:
@@ -81,10 +116,10 @@ Set credentials via environment variables:
 ```bash
 export FH_USER="you@example.com"
 export FH_PASSWORD="your_password"
-python run_example.py
+python examples/run_example.py
 ```
 
-Or create `secrets.json`:
+Or create `examples/secrets.json`:
 
 ```json
 {

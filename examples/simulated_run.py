@@ -1,11 +1,17 @@
 """Run a minimal async demo using a fake aiohttp-like session.
 
-This mirrors the previous synchronous `simple_run` but uses the async
+This mirrors the previous synchronous `simulated_run` but uses the async
 client so it remains a small, dependency-free smoke test.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 
+# Add parent directory to path so we can import flowerhub_portal_api_client
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# pylint: disable=wrong-import-position
 from flowerhub_portal_api_client import AsyncFlowerhubClient
 
 

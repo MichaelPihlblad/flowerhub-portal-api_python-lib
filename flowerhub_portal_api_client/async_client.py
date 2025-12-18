@@ -22,6 +22,13 @@ except Exception:  # pragma: no cover - optional dependency
     aiohttp = None
 
 
+class AuthenticationError(Exception):
+    """Raised when authentication token expires and refresh fails.
+
+    This exception indicates that the user needs to login again.
+    """
+
+
 @dataclass
 class User:
     """User information returned from login."""
@@ -198,10 +205,12 @@ class AsyncFlowerhubClient:
         self,
         base_url: str = "https://api.portal.flowerhub.se",
         session: Optional["aiohttp.ClientSession"] = None,
+        on_auth_failed: Optional[Callable[[], None]] = None,
     ):
         # session or aiohttp may be provided; actual request-time will raise if session is missing
         self.base_url = base_url
         self._session: Optional["aiohttp.ClientSession"] = session
+        self.on_auth_failed = on_auth_failed
         self.asset_owner_id: Optional[int] = None
         self.asset_id: Optional[int] = None
         self.asset_info: Optional[Dict[str, Any]] = None
@@ -414,6 +423,25 @@ class AsyncFlowerhubClient:
                         )
                         data2 = None
 
+                    if resp2.status == 401:
+                        _LOGGER.error(
+                            "Request to %s failed after token refresh: re-authentication required",
+                            path,
+                        )
+                        # Invoke callback if provided
+                        if self.on_auth_failed:
+                            try:
+                                self.on_auth_failed()
+                            except Exception as err:
+                                _LOGGER.error(
+                                    "on_auth_failed callback raised an exception: %s",
+                                    err,
+                                    exc_info=True,
+                                )
+                        # Raise exception to notify caller
+                        raise AuthenticationError(
+                            "Authentication token expired and refresh failed. Please login again."
+                        )
                     if resp2.status >= 400:
                         _LOGGER.warning(
                             "Request to %s failed after token refresh with status %s",
