@@ -12,6 +12,24 @@ https://api.portal.flowerhub.se
 
 All API requests (except login) require authentication via HTTP cookies set during login.
 
+### Cookie Handling
+- The API authenticates via HTTP cookies (`Authentication` and `Refresh`) set by the `POST /auth/login` response using `Set-Cookie` headers.
+- Clients should use an HTTP client that maintains a cookie jar (e.g., `requests.Session` or `aiohttp.ClientSession`) rather than manually copying cookie values.
+- Cookies are set with `HttpOnly`, `Secure`, and `SameSite` attributes; `HttpOnly` means the cookie cannot be read by scripts and should be sent automatically by the HTTP client.
+- For cross-site scenarios, servers may require the `Origin: https://portal.flowerhub.se` header and `credentials` enabled (cookie-based requests).
+
+curl example:
+```bash
+curl \
+  -H "Origin: https://portal.flowerhub.se" \
+  -H "Cookie: Authentication=<ACCESS_TOKEN>; Refresh=<REFRESH_TOKEN>" \
+  "https://api.portal.flowerhub.se/asset-owner/{assetOwnerId}/withAssetId"
+```
+Notes
+
+- The `Refresh` cookie is generally `HttpOnly` and used by the server to mint a new access token; clients should not send it manually beyond relying on the cookie jar.
+- A `401 Unauthorized` may trigger a refresh flow (the client can re-call `/auth/refresh-token`);
+
 ### POST /auth/login
 Authenticate a user and receive JWT tokens.
 
@@ -38,7 +56,7 @@ Authenticate a user and receive JWT tokens.
   "refreshTokenExpirationDate": <ISO-8601 datetime string>
 }
 ```
-Notes: IDs and roles are numeric; emails are standard email strings; date-time values are ISO-8601 UTC.
+Notes: IDs and roles are numeric; date-time values are ISO-8601 UTC.
 
 **Cookies Set:**
 - `Authentication`: JWT access token

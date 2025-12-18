@@ -1,10 +1,10 @@
 [project]
 name = "flowerhub-portal-api-client"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lightweight Flowerhub portal client (synchronous and async)"
 readme = "README.md"
-authors = [ { name="Your Name", email="you@example.com" } ]
-license = { text = "MIT" }
+authors = [ { name="Michael Pihlblad", email="michael.pihlblad@bahnhof.se" } ]
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31",

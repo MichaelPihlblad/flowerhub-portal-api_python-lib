@@ -1,115 +1,102 @@
-# Flowerhub Portal Python Client (example)
+# Flowerhub Portal Python Client
 
-This small client demonstrates how to replicate a browser-based session for the Flowerhub portal API using cookie-based JWT authentication.
+[![CI](https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib/actions/workflows/ci.yml)
+[![Code Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Features:
-- Login via `/auth/login` that sets Authentication (access) and Refresh cookies
-- Calls to protected endpoints using the same session (cookies sent automatically)
-- Refresh via `/auth/refresh-token` when a 401 Unauthorized is returned
-- Displays decoded JWT claims for access/refresh cookies for debugging
+A lightweight, Python client for the [Flowerhub portal](https://portal.flowerhub.se) API with cookie-based JWT authentication.
 
-Usage:
+**Related Projects:**
+- [Home Assistant Custom Integration](https://github.com/MichaelPihlblad/homeassistant-flowerhub)
 
-1) Install dependencies (virtualenv or similar):
+## Features
+
+- Cookie-based JWT authentication with automatic token refresh
+- Async/await support via `aiohttp`
+- Client provides asset, consumption, and invoice data from API endpoints
+- Designed for Home Assistant integrations and similar use cases
+
+## Installation
+
+### From Source
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
+cd flowerhub-portal-api_python-lib
+pip install -e ".[async]"
 ```
 
-2) Run the example (replace credentials):
+## Quick Start
 
-```bash
-export FH_USER="you@example.com"
-export FH_PASSWORD="hunter2"
-python run_example.py
+```python
+import asyncio
+from flowerhub_portal_api_client import AsyncFlowerhubClient
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        client = AsyncFlowerhubClient(session=session)
+
+        # Login
+        result = await client.async_login("user@example.com", "password")
+
+        # Fetch asset information
+        await client.async_readout_sequence()
+
+        # Access asset status
+        if client.flowerhub_status:
+            print(f"Status: {client.flowerhub_status.status}")
+            print(f"Message: {client.flowerhub_status.message}")
+
+asyncio.run(main())
 ```
 
-Quick Start (run the async example)
-----------------------------------
-These quick commands set up a virtual environment, install the async dependency (`aiohttp`) via the package extra, and run the async example in `run_example.py`:
+## Development Setup
+
+For contributors and local development:
 
 ```bash
-# create and activate venv
+# Clone and setup environment
+git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
+cd flowerhub-portal-api_python-lib
 python -m venv .venv
 source .venv/bin/activate
 
-# upgrade packaging tools (recommended)
-pip install --upgrade pip setuptools wheel
-
-# install test/dev deps and optional async dependency via extras
-pip install -r requirements.txt
-pip install -e ".[async]"   # installs aiohttp
-
-# run the example (set credentials via env or secrets.json)
-export FH_USER="you@example.com"
-export FH_PASSWORD="hunter2"
-python run_example.py
-```
-
-Tip: if you prefer not to use editable installs, run `pip install ".[async]"` instead.
-
-Developing / Linting
---------------------
-If you're contributing or developing locally, install the dev tools and enable the `pre-commit` hooks to automatically run linters and formatters on each commit:
-
-```bash
-# create and activate your venv (if not already done)
-python -m venv .venv
-source .venv/bin/activate
-
-# install base deps and development tools
+# Install dependencies
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
 
-# install pre-commit hooks into your local repo
+# Install pre-commit hooks
 pre-commit install
 
-# run hooks on all files (useful to format everything once)
+# Run all checks
 pre-commit run --all-files
-
-# optionally run formatters/linters directly
-python -m ruff check --fix .
-python -m black .
-python -m isort .
+pytest tests --cov=flowerhub_portal_api_client
 ```
 
-Running the pre-commit hooks locally and in CI helps keep the codebase consistent and avoids style-related PR churn.
+## Running Examples
 
-Alternatively, specify credentials using a secrets JSON file (recommended for local dev only - do not commit this file):
+Set credentials via environment variables:
 
-Create a local `secrets.json` or `~/.flowerhub_secrets.json` (kept out of git) using the sample file `secrets.example.json` included in this repo.
+```bash
+export FH_USER="you@example.com"
+export FH_PASSWORD="your_password"
+python run_example.py
+```
 
-`secrets.json` or `~/.flowerhub_secrets.json` (format):
+Or create `secrets.json`:
 
 ```json
 {
-	"username": "you@example.com",
-	"password": "hunter2"
+  "username": "you@example.com",
+  "password": "your_password"
 }
 ```
 
-If no secrets file or environment variables are present, the script will prompt for username/password interactively.
-
-Notes:
-- This client deliberately decodes JWTs without signature verification (for debugging purposes). Do not use the accounting decode method for authentication decisions in production.
-- Some endpoints are CORS-protected; we set the `Origin` header in the requests to mimic a browser context so that servers expecting that header will accept the requests.
-- If the API supports a Bearer Authorization header, a modern API integration could instead store the access token and use `Authorization: Bearer <access_token>` for API calls. The HAR shows cookies are used and CORS credentials are enabled.
-
 ## API Documentation
 
-For detailed information about the API endpoints used by the FlowerHub Python client library, request/response formats, and data structures, see [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md).
+For detailed information about the Flowerhub portal API endpoints used by this Python client library, such as request/response formats, and data structures, see [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md).
 
-This documentation includes:
-- Complete endpoint specifications for endpoints used by the library
-- Request/response schemas with example data
-- Authentication requirements
-- Error handling
-- Data types and status values
-
-Extending for Home Assistant:
-- Use `aiohttp` and `DataUpdateCoordinator` for an async integration; adapt the `login` and `refresh` flows to use `aiohttp.ClientSession` and manage cookies using `CookieJar`.
 
 Periodic status refresh (background polling) 💡
 ------------------------------------------
@@ -149,61 +136,9 @@ If you prefer a callback approach, pass `on_update` which will be called with
 a `FlowerHubStatus` instance each time the status is refreshed. Avoid blocking
 operations in the callback because it's executed in the event loop.
 
-Breaking change / migration note ⚠️
----------------------------------
-This project now provides an async-only client API. The previously available
-`FlowerhubClient` (synchronous) has been removed; please migrate to
-`AsyncFlowerhubClient` and use an `aiohttp.ClientSession`. See the example
-above for a quick migration snippet.
 ```
-
 `FlowerHubStatus` fields:
 - `status` — textual status (e.g., "Connected")
 - `message` — human-friendly message
 - `updated_at` — UTC datetime when the status was recorded
 - `age_seconds()` — helper returning the age in seconds (float) or `None` if timestamp missing
-
-
-Home Assistant integration example (DataUpdateCoordinator) ⚙️
-----------------------------------------------------------------
-Below is a minimal example showing how to integrate the async client with
-Home Assistant using a `DataUpdateCoordinator`. This pattern centralizes polling
-and makes it easy to create platform entities (sensors, binary sensors, etc.).
-
-```py
-from datetime import timedelta
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from flowerhub_portal_api_client import AsyncFlowerhubClient
-
-
-async def async_setup_entry(hass, entry):
-	session = async_get_clientsession(hass)
-	client = AsyncFlowerhubClient(base_url=entry.data["base_url"], session=session)
-
-	async def async_fetch() -> dict:
-		# perform the readout and return relevant data for your entities
-		await client.async_readout_sequence()
-		status = client.flowerhub_status
-		return {"status": status.status if status else None, "message": status.message if status else None}
-
-	coordinator = DataUpdateCoordinator(
-		hass,
-		logger=logging.getLogger(__name__),
-		name="flowerhub",
-		update_method=async_fetch,
-		update_interval=timedelta(seconds=60),
-	)
-
-	# Do an initial fetch so entities can be populated immediately
-	await coordinator.async_refresh()
-
-	hass.data.setdefault("flowerhub", {})[entry.entry_id] = {"client": client, "coordinator": coordinator}
-
-	# forward platforms (e.g., sensor)
-	hass.config_entries.async_setup_platforms(entry, ["sensor"])
-
-```
-
-Entity classes then use `CoordinatorEntity` and reference `coordinator.data` for state.
-This keeps all refresh logic centralized and HA-friendly.
