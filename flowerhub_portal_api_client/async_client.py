@@ -10,14 +10,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-from typing import Any, Dict, Optional
-
-try:
-    import aiohttp
-except Exception:  # pragma: no cover - optional dependency
-    aiohttp = None
-
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 try:
@@ -116,6 +109,79 @@ class AssetOwner:
     firstName: str
 
 
+@dataclass
+class AgreementState:
+    """State metadata for electricity agreements (consumption/production)."""
+
+    stateCategory: Optional[str] = None
+    stateId: Optional[int] = None
+    siteId: Optional[int] = None
+    startDate: Optional[str] = None
+    terminationDate: Optional[str] = None
+
+
+@dataclass
+class ElectricityAgreement:
+    """Electricity agreement covering consumption and production sites."""
+
+    consumption: Optional[AgreementState] = None
+    production: Optional[AgreementState] = None
+
+
+@dataclass
+class InvoiceLine:
+    """Single invoice line item."""
+
+    item_id: str
+    name: str
+    description: str
+    price: str
+    volume: str
+    amount: str
+    settlements: Any
+
+
+@dataclass
+class Invoice:
+    """Invoice structure, optionally containing sub group invoices."""
+
+    id: str
+    due_date: Optional[str]
+    ocr: Optional[str]
+    invoice_status: Optional[str]
+    invoice_has_settlements: Optional[str]
+    invoice_status_id: Optional[str]
+    invoice_create_date: Optional[str]
+    invoiced_month: Optional[str]
+    invoice_period: Optional[str]
+    invoice_date: Optional[str]
+    total_amount: Optional[str]
+    remaining_amount: Optional[str]
+    invoice_lines: List[InvoiceLine] = field(default_factory=list)
+    invoice_pdf: Optional[str] = None
+    invoice_type_id: Optional[str] = None
+    invoice_type: Optional[str] = None
+    claim_status: Optional[str] = None
+    claim_reminder_pdf: Optional[str] = None
+    site_id: Optional[str] = None
+    sub_group_invoices: List["Invoice"] = field(default_factory=list)
+    current_payment_type_id: Optional[str] = None
+    current_payment_type_name: Optional[str] = None
+
+
+@dataclass
+class ConsumptionRecord:
+    """Consumption history entry (reading or calculated)."""
+
+    site_id: str
+    valid_from: str
+    valid_to: Optional[str]
+    invoiced_month: str
+    volume: Optional[float]
+    type: str
+    type_id: Optional[int]
+
+
 class AsyncFlowerhubClient:
     def __init__(
         self,
@@ -129,6 +195,127 @@ class AsyncFlowerhubClient:
         self.asset_id: Optional[int] = None
         self.asset_info: Optional[Dict[str, Any]] = None
         self.flowerhub_status: Optional[FlowerHubStatus] = None
+
+    @staticmethod
+    def _safe_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_float(value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    @classmethod
+    def _parse_agreement_state(cls, payload: Dict[str, Any]) -> AgreementState:
+        return AgreementState(
+            stateCategory=payload.get("stateCategory"),
+            stateId=cls._safe_int(payload.get("stateId")),
+            siteId=cls._safe_int(payload.get("siteId")),
+            startDate=payload.get("startDate"),
+            terminationDate=payload.get("terminationDate"),
+        )
+
+    @classmethod
+    def _parse_electricity_agreement(
+        cls, data: Any
+    ) -> Optional[ElectricityAgreement]:
+        if not isinstance(data, dict):
+            return None
+        consumption = data.get("consumption")
+        production = data.get("production")
+        return ElectricityAgreement(
+            consumption=cls._parse_agreement_state(consumption)
+            if isinstance(consumption, dict)
+            else None,
+            production=cls._parse_agreement_state(production)
+            if isinstance(production, dict)
+            else None,
+        )
+
+    @classmethod
+    def _parse_invoice_line(cls, payload: Dict[str, Any]) -> InvoiceLine:
+        return InvoiceLine(
+            item_id=str(payload.get("item_id", "")),
+            name=payload.get("name", ""),
+            description=payload.get("description", ""),
+            price=str(payload.get("price", "")),
+            volume=str(payload.get("volume", "")),
+            amount=str(payload.get("amount", "")),
+            settlements=payload.get("settlements", []),
+        )
+
+    @classmethod
+    def _parse_invoice(cls, payload: Dict[str, Any]) -> Invoice:
+        lines: List[InvoiceLine] = []
+        for entry in payload.get("invoice_lines", []):
+            if isinstance(entry, dict):
+                lines.append(cls._parse_invoice_line(entry))
+
+        sub_invoices: List[Invoice] = []
+        for sub in payload.get("sub_group_invoices", []):
+            if isinstance(sub, dict):
+                sub_invoices.append(cls._parse_invoice(sub))
+
+        return Invoice(
+            id=str(payload.get("id", "")),
+            due_date=payload.get("due_date"),
+            ocr=payload.get("ocr"),
+            invoice_status=payload.get("invoice_status"),
+            invoice_has_settlements=payload.get("invoice_has_settlements"),
+            invoice_status_id=payload.get("invoice_status_id"),
+            invoice_create_date=payload.get("invoice_create_date"),
+            invoiced_month=payload.get("invoiced_month"),
+            invoice_period=payload.get("invoice_period"),
+            invoice_date=payload.get("invoice_date"),
+            total_amount=payload.get("total_amount"),
+            remaining_amount=payload.get("remaining_amount"),
+            invoice_lines=lines,
+            invoice_pdf=payload.get("invoice_pdf"),
+            invoice_type_id=payload.get("invoice_type_id"),
+            invoice_type=payload.get("invoice_type"),
+            claim_status=payload.get("claim_status"),
+            claim_reminder_pdf=payload.get("claim_reminder_pdf"),
+            site_id=payload.get("site_id"),
+            sub_group_invoices=sub_invoices,
+            current_payment_type_id=payload.get("current_payment_type_id"),
+            current_payment_type_name=payload.get("current_payment_type_name"),
+        )
+
+    @classmethod
+    def _parse_invoices(cls, data: Any) -> Optional[List[Invoice]]:
+        if not isinstance(data, list):
+            return None
+        invoices: List[Invoice] = []
+        for item in data:
+            if isinstance(item, dict):
+                invoices.append(cls._parse_invoice(item))
+        return invoices
+
+    @classmethod
+    def _parse_consumption(cls, data: Any) -> Optional[List[ConsumptionRecord]]:
+        if not isinstance(data, list):
+            return None
+        records: List[ConsumptionRecord] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            records.append(
+                ConsumptionRecord(
+                    site_id=str(item.get("site_id", "")),
+                    valid_from=item.get("valid_from", ""),
+                    valid_to=item.get("valid_to") or None,
+                    invoiced_month=item.get("invoiced_month", ""),
+                    volume=cls._safe_float(item.get("volume")),
+                    type=item.get("type", ""),
+                    type_id=cls._safe_int(item.get("type_id")),
+                )
+            )
+        return records
 
     async def _request(self, path: str, method: str = "GET", **kwargs) -> Any:
         sess = self._session
@@ -236,6 +423,64 @@ class AsyncFlowerhubClient:
                     status=fhs.get("status"), message=fhs.get("message"), updated_at=now
                 )
         return resp
+
+    async def async_fetch_system_notification(self, slug: str = "active-flower") -> Dict[str, Any]:
+        """Fetch a system-notification payload by slug (e.g. ``active-flower`` or ``active-zavann``)."""
+
+        path = f"/system-notification/{slug}"
+        resp, data, text = await self._request(path)
+        return {"status_code": resp.status, "json": data, "text": text}
+
+    async def async_fetch_electricity_agreement(
+        self, asset_owner_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Fetch electricity agreement details for the given asset owner."""
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            raise ValueError("asset_owner_id is required for electricity agreement fetch")
+        path = f"/asset-owner/{aoid}/electricity-agreement"
+        resp, data, text = await self._request(path)
+        return {
+            "status_code": resp.status,
+            "json": data,
+            "text": text,
+            "agreement": self._parse_electricity_agreement(data),
+        }
+
+    async def async_fetch_invoices(
+        self, asset_owner_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Fetch invoice information for the given asset owner."""
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            raise ValueError("asset_owner_id is required for invoice fetch")
+        path = f"/asset-owner/{aoid}/invoice"
+        resp, data, text = await self._request(path)
+        return {
+            "status_code": resp.status,
+            "json": data,
+            "text": text,
+            "invoices": self._parse_invoices(data),
+        }
+
+    async def async_fetch_consumption(
+        self, asset_owner_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Fetch consumption data for the given asset owner."""
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            raise ValueError("asset_owner_id is required for consumption fetch")
+        path = f"/asset-owner/{aoid}/consumption"
+        resp, data, text = await self._request(path)
+        return {
+            "status_code": resp.status,
+            "json": data,
+            "text": text,
+            "consumption": self._parse_consumption(data),
+        }
 
     async def async_readout_sequence(
         self, asset_owner_id: Optional[int] = None
