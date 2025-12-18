@@ -24,10 +24,19 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .
         pip install -r dev-requirements.txt
+    - name: Check import order with isort
+      run: |
+        isort --profile=black --check-only .
+    - name: Check formatting with black
+      run: |
+        black --check .
     - name: Lint with ruff
       run: |
         ruff check .
         ruff format --check .
+    - name: Lint with pylint
+      run: |
+        pylint flowerhub_portal_api_client tests
     - name: Type check with mypy
       run: |
         mypy flowerhub_portal_api_client tests

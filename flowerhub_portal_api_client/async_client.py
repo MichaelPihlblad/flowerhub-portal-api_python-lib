@@ -237,12 +237,16 @@ class AsyncFlowerhubClient:
         consumption = data.get("consumption")
         production = data.get("production")
         return ElectricityAgreement(
-            consumption=cls._parse_agreement_state(consumption)
-            if isinstance(consumption, dict)
-            else None,
-            production=cls._parse_agreement_state(production)
-            if isinstance(production, dict)
-            else None,
+            consumption=(
+                cls._parse_agreement_state(consumption)
+                if isinstance(consumption, dict)
+                else None
+            ),
+            production=(
+                cls._parse_agreement_state(production)
+                if isinstance(production, dict)
+                else None
+            ),
         )
 
     @classmethod

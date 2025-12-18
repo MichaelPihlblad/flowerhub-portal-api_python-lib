@@ -1,0 +1,31 @@
+[MASTER]
+# Use multiple processes to speed up Pylint.
+jobs=0
+
+[DESIGN]
+# Maximum number of locals in a function
+max-locals=20
+
+[FORMAT]
+# Maximum length of lines
+max-line-length=100
+
+[MESSAGES CONTROL]
+# C0301: line too long (handled by black/ruff)
+# C0103: invalid-name (camelCase from API, acceptable in dataclasses)
+# C0114/C0115/C0116: Missing docstrings (verbose for test/simple code)
+# R0801: duplicate-code (test fixtures are repeated)
+disable=fixme,
+        too-many-arguments,
+        too-many-instance-attributes,
+        too-few-public-methods,
+        too-many-return-statements,
+        missing-module-docstring,
+        missing-class-docstring,
+        missing-function-docstring,
+        invalid-name,
+        line-too-long,
+        duplicate-code,
+        unused-argument,
+        broad-exception-caught,
+        unused-variable,
