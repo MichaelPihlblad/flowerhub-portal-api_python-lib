@@ -48,7 +48,10 @@ class DummySession:
             self.cookies["Authentication"] = "jwtaccess-dummy"
             self.cookies["Refresh"] = "jwtrefresh-dummy"
             return DummySession._req_ctx(
-                DummyResp(status=200, json_data={"user": {"assetOwnerId": self.asset_owner_id}})
+                DummyResp(
+                    status=200,
+                    json_data={"user": {"assetOwnerId": self.asset_owner_id}},
+                )
             )
         if url.endswith("/auth/refresh-token"):
             self.cookies["Authentication"] = "jwtaccess-dummy2"
@@ -56,7 +59,10 @@ class DummySession:
         if f"/asset-owner/{self.asset_owner_id}/withAssetId" in url:
             if "Authentication" in self.cookies:
                 return DummySession._req_ctx(
-                    DummyResp(status=200, json_data={"id": self.asset_owner_id, "assetId": self.asset_id})
+                    DummyResp(
+                        status=200,
+                        json_data={"id": self.asset_owner_id, "assetId": self.asset_id},
+                    )
                 )
             return DummySession._req_ctx(DummyResp(status=401))
         if url.endswith(f"/asset/{self.asset_id}"):
@@ -80,6 +86,7 @@ class DummySession:
 def run_demo():
     asset_owner_id = 42
     asset_id = 99
+
     async def _run():
         sess = DummySession(asset_owner_id, asset_id)
         client = AsyncFlowerhubClient(session=sess)

@@ -11,8 +11,9 @@ import asyncio
 import datetime
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+aiohttp: Any
 try:
     import aiohttp
 except Exception:  # pragma: no cover - optional dependency
@@ -22,6 +23,7 @@ except Exception:  # pragma: no cover - optional dependency
 @dataclass
 class User:
     """User information returned from login."""
+
     id: int
     email: str
     role: int
@@ -34,6 +36,7 @@ class User:
 @dataclass
 class LoginResponse:
     """Response from login endpoint."""
+
     user: User
     refreshTokenExpirationDate: str
 
@@ -41,6 +44,7 @@ class LoginResponse:
 @dataclass
 class FlowerHubStatus:
     """Status information for the FlowerHub system."""
+
     status: Optional[str] = None
     message: Optional[str] = None
     updated_at: Optional[datetime.datetime] = None
@@ -60,6 +64,7 @@ class FlowerHubStatus:
 @dataclass
 class Manufacturer:
     """Manufacturer information."""
+
     manufacturerId: int
     manufacturerName: str
 
@@ -67,6 +72,7 @@ class Manufacturer:
 @dataclass
 class Inverter:
     """Inverter specifications."""
+
     manufacturerId: int
     manufacturerName: str
     inverterModelId: int
@@ -79,6 +85,7 @@ class Inverter:
 @dataclass
 class Battery:
     """Battery specifications."""
+
     manufacturerId: int
     manufacturerName: str
     batteryModelId: int
@@ -93,6 +100,7 @@ class Battery:
 @dataclass
 class Asset:
     """Complete asset information."""
+
     id: int
     inverter: Inverter
     battery: Battery
@@ -104,6 +112,7 @@ class Asset:
 @dataclass
 class AssetOwner:
     """Asset owner information."""
+
     id: int
     assetId: int
     firstName: str
@@ -190,11 +199,12 @@ class AsyncFlowerhubClient:
     ):
         # session or aiohttp may be provided; actual request-time will raise if session is missing
         self.base_url = base_url
-        self._session = session
+        self._session: Optional["aiohttp.ClientSession"] = session
         self.asset_owner_id: Optional[int] = None
         self.asset_id: Optional[int] = None
         self.asset_info: Optional[Dict[str, Any]] = None
         self.flowerhub_status: Optional[FlowerHubStatus] = None
+        self._asset_fetch_task: Optional[asyncio.Task[Any]] = None
 
     @staticmethod
     def _safe_int(value: Any) -> Optional[int]:
@@ -221,9 +231,7 @@ class AsyncFlowerhubClient:
         )
 
     @classmethod
-    def _parse_electricity_agreement(
-        cls, data: Any
-    ) -> Optional[ElectricityAgreement]:
+    def _parse_electricity_agreement(cls, data: Any) -> Optional[ElectricityAgreement]:
         if not isinstance(data, dict):
             return None
         consumption = data.get("consumption")
@@ -327,7 +335,7 @@ class AsyncFlowerhubClient:
             else f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
         )
         headers = {"Origin": "https://portal.flowerhub.se", **kwargs.pop("headers", {})}
-        cm = sess.request(method, url, headers=headers, **kwargs)
+        cm: Any = sess.request(method, url, headers=headers, **kwargs)
         if asyncio.iscoroutine(cm):
             cm = await cm
         async with cm as resp:
@@ -340,14 +348,14 @@ class AsyncFlowerhubClient:
             if resp.status == 401:
                 try:
                     # attempt refresh
-                    rref_ctx = sess.request(
+                    rref_cm: Any = sess.request(
                         "GET",
                         f"{self.base_url.rstrip('/')}/auth/refresh-token",
                         headers=headers,
                     )
-                    if asyncio.iscoroutine(rref_ctx):
-                        rref_ctx = await rref_ctx
-                    async with rref_ctx as rref:
+                    if asyncio.iscoroutine(rref_cm):
+                        rref_cm = await rref_cm
+                    async with rref_cm as rref:
                         try:
                             rref_json = await rref.json()
                         except Exception:
@@ -363,7 +371,7 @@ class AsyncFlowerhubClient:
                 except Exception:
                     logging.exception("Refresh token request failed")
                 # retry original request once
-                cm2 = sess.request(method, url, headers=headers, **kwargs)
+                cm2: Any = sess.request(method, url, headers=headers, **kwargs)
                 if asyncio.iscoroutine(cm2):
                     cm2 = await cm2
                 async with cm2 as resp2:
@@ -424,7 +432,9 @@ class AsyncFlowerhubClient:
                 )
         return resp
 
-    async def async_fetch_system_notification(self, slug: str = "active-flower") -> Dict[str, Any]:
+    async def async_fetch_system_notification(
+        self, slug: str = "active-flower"
+    ) -> Dict[str, Any]:
         """Fetch a system-notification payload by slug (e.g. ``active-flower`` or ``active-zavann``)."""
 
         path = f"/system-notification/{slug}"
@@ -438,7 +448,9 @@ class AsyncFlowerhubClient:
 
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
-            raise ValueError("asset_owner_id is required for electricity agreement fetch")
+            raise ValueError(
+                "asset_owner_id is required for electricity agreement fetch"
+            )
         path = f"/asset-owner/{aoid}/electricity-agreement"
         resp, data, text = await self._request(path)
         return {
@@ -506,7 +518,7 @@ class AsyncFlowerhubClient:
         self,
         interval_seconds: float = 60.0,
         run_immediately: bool = False,
-        on_update: Optional[callable] = None,
+        on_update: Optional[Callable[[FlowerHubStatus], None]] = None,
         result_queue: Optional["asyncio.Queue"] = None,
     ) -> asyncio.Task:
         """Start a background asyncio Task that periodically fetches the asset.

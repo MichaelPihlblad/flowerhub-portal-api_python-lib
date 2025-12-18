@@ -242,4 +242,3 @@ Fetch a system notification
 ## Caching
 
 The API uses ETag headers for caching optimization. Clients should include `If-None-Match` headers with subsequent requests to leverage 304 Not Modified responses.
-

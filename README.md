@@ -207,4 +207,3 @@ async def async_setup_entry(hass, entry):
 
 Entity classes then use `CoordinatorEntity` and reference `coordinator.data` for state.
 This keeps all refresh logic centralized and HA-friendly.
-

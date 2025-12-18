@@ -64,7 +64,9 @@ def test_login_and_fetch():
     asset_id = 99
     sess.add_response(
         base + "/auth/login",
-        DummyResp(status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"),
+        DummyResp(
+            status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"
+        ),
     )
     sess.add_response(
         base + f"/asset-owner/{asset_owner_id}/withAssetId",
@@ -114,7 +116,9 @@ def test_refresh_on_401():
     # subsequent attempt returns the asset id
     sess.add_response(
         base + f"/asset-owner/{asset_owner_id}/withAssetId",
-        DummyResp(status=200, json_data={"id": asset_owner_id, "assetId": asset_id}, text="{"),
+        DummyResp(
+            status=200, json_data={"id": asset_owner_id, "assetId": asset_id}, text="{"
+        ),
     )
     sess.add_response(
         base + f"/asset/{asset_id}",
@@ -145,7 +149,9 @@ def test_flowerhub_status_timestamp_updates():
     asset_id = 99
     sess.add_response(
         base + "/auth/login",
-        DummyResp(status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"),
+        DummyResp(
+            status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"
+        ),
     )
     sess.add_response(
         base + f"/asset-owner/{asset_owner_id}/withAssetId",
@@ -159,7 +165,8 @@ def test_flowerhub_status_timestamp_updates():
         },
     }
     sess.add_response(
-        base + f"/asset/{asset_id}", DummyResp(status=200, json_data=asset_json, text="{")
+        base + f"/asset/{asset_id}",
+        DummyResp(status=200, json_data=asset_json, text="{"),
     )
 
     client = AsyncFlowerhubClient(base, session=sess)
@@ -171,7 +178,8 @@ def test_flowerhub_status_timestamp_updates():
         assert first_ts is not None
         # add another response and re-fetch asset
         sess.add_response(
-            base + f"/asset/{asset_id}", DummyResp(status=200, json_data=asset_json, text="{")
+            base + f"/asset/{asset_id}",
+            DummyResp(status=200, json_data=asset_json, text="{"),
         )
         await client.async_fetch_asset()
         second_ts = client.flowerhub_status.updated_at
@@ -234,7 +242,9 @@ def test_periodic_callback_and_queue():
     asset_id = 99
     sess.add_response(
         base + "/auth/login",
-        DummyResp(status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"),
+        DummyResp(
+            status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"
+        ),
     )
     sess.add_response(
         base + f"/asset-owner/{asset_owner_id}/withAssetId",

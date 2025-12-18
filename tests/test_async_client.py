@@ -52,7 +52,9 @@ def test_async_readout_smoke():
     asset_id = 99
     sess.add_response(
         base + "/auth/login",
-        DummyResp(status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"),
+        DummyResp(
+            status=200, json_data={"user": {"assetOwnerId": asset_owner_id}}, text="{"
+        ),
     )
     sess.add_response(
         base + f"/asset-owner/{asset_owner_id}/withAssetId",

@@ -28,6 +28,9 @@ jobs:
       run: |
         ruff check .
         ruff format --check .
+    - name: Type check with mypy
+      run: |
+        mypy flowerhub_portal_api_client tests
     - name: Run tests
       run: |
         python -m pytest tests/ -v
