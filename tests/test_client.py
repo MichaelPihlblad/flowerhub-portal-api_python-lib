@@ -1,6 +1,6 @@
 import asyncio
 
-from flowerhub_portal_api_client import AuthenticationError, FlowerHubStatus
+from flowerhub_portal_api_client import ApiError, AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
 
 
@@ -486,9 +486,11 @@ def test_fetch_asset_id_with_invalid_response():
     client = AsyncFlowerhubClient(base, session=sess)
 
     async def _run():
-        await client.async_fetch_asset_id(aoid)
-        # asset_id should remain None due to failed int conversion
-        assert client.asset_id is None
+        try:
+            await client.async_fetch_asset_id(aoid)
+            assert False, "Expected ApiError due to invalid assetId"
+        except ApiError as e:
+            assert "Failed to parse assetId" in str(e)
 
     run(_run())
 
@@ -510,9 +512,11 @@ def test_fetch_asset_with_missing_status():
     client = AsyncFlowerhubClient(base, session=sess)
 
     async def _run():
-        await client.async_fetch_asset(asset_id)
-        # flowerhub_status should remain None
-        assert client.flowerhub_status is None
+        try:
+            await client.async_fetch_asset(asset_id)
+            assert False, "Expected ApiError due to missing flowerHubStatus"
+        except ApiError as e:
+            assert "flowerHubStatus" in str(e)
 
     run(_run())
 

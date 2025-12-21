@@ -11,7 +11,7 @@ import asyncio
 import datetime
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +27,29 @@ class AuthenticationError(Exception):
 
     This exception indicates that the user needs to login again.
     """
+
+
+class ApiError(Exception):
+    """Raised for non-auth HTTP errors and payload validation issues.
+
+    Attributes:
+    - status_code: HTTP status code when applicable (None for payload validation errors)
+    - url: request URL (if known)
+    - message: human-readable error message
+    - payload: optional response payload for debugging
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        url: Optional[str] = None,
+        payload: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.url = url
+        self.payload = payload
 
 
 @dataclass
@@ -200,6 +223,44 @@ class ConsumptionRecord:
     type_id: Optional[int]
 
 
+# ----- Typed results -----
+class AssetIdResult(TypedDict):
+    status_code: int
+    asset_id: Optional[int]
+    error: Optional[str]
+
+
+class AssetFetchResult(TypedDict):
+    status_code: int
+    asset_info: Optional[Dict[str, Any]]
+    flowerhub_status: Optional[FlowerHubStatus]
+    error: Optional[str]
+
+
+class AgreementResult(TypedDict):
+    status_code: int
+    agreement: Optional[ElectricityAgreement]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class InvoicesResult(TypedDict):
+    status_code: int
+    invoices: Optional[List[Invoice]]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class ConsumptionResult(TypedDict):
+    status_code: int
+    consumption: Optional[List[ConsumptionRecord]]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
 class AsyncFlowerhubClient:
     def __init__(
         self,
@@ -216,6 +277,8 @@ class AsyncFlowerhubClient:
         self.asset_info: Optional[Dict[str, Any]] = None
         self.flowerhub_status: Optional[FlowerHubStatus] = None
         self._asset_fetch_task: Optional[asyncio.Task[Any]] = None
+        # Optional total timeout in seconds for requests (10s default). Set to 0/None to disable.
+        self.request_timeout_total: Optional[float] = 10.0
 
     @staticmethod
     def _safe_int(value: Any) -> Optional[int]:
@@ -341,7 +404,13 @@ class AsyncFlowerhubClient:
         return records
 
     async def _request(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-        self, path: str, method: str = "GET", **kwargs
+        self,
+        path: str,
+        method: str = "GET",
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = 2,
+        **kwargs,
     ) -> Any:
         sess = self._session
         if sess is None:
@@ -355,119 +424,174 @@ class AsyncFlowerhubClient:
         headers = {"Origin": "https://portal.flowerhub.se", **kwargs.pop("headers", {})}
 
         _LOGGER.debug("Making %s request to %s", method, path)
-
-        cm: Any = sess.request(method, url, headers=headers, **kwargs)
-        if asyncio.iscoroutine(cm):
-            cm = await cm
-        async with cm as resp:
-            text = await resp.text()
+        # Add timeout if configured and not overridden; 0/None disables
+        if (
+            aiohttp
+            and self.request_timeout_total is not None
+            and self.request_timeout_total > 0
+            and "timeout" not in kwargs
+        ):
             try:
-                data = await resp.json()
+                kwargs["timeout"] = aiohttp.ClientTimeout(
+                    total=self.request_timeout_total
+                )
             except Exception as err:
-                _LOGGER.debug("Response is not JSON for %s: %s", path, err)
-                data = None
+                _LOGGER.debug("Failed to construct ClientTimeout: %s", err)
 
-            # Handle 401 -> try refresh-token once and retry original request
-            if resp.status == 401:
-                _LOGGER.info("Access token expired for %s, attempting refresh", path)
+        attempts = 0
+
+        while True:
+            cm: Any = sess.request(method, url, headers=headers, **kwargs)
+            if asyncio.iscoroutine(cm):
+                cm = await cm
+            async with cm as resp:
+                text = await resp.text()
                 try:
-                    # attempt refresh
-                    rref_cm: Any = sess.request(
-                        "GET",
-                        f"{self.base_url.rstrip('/')}/auth/refresh-token",
-                        headers=headers,
-                    )
-                    if asyncio.iscoroutine(rref_cm):
-                        rref_cm = await rref_cm
-                    async with rref_cm as rref:
-                        if rref.status == 200:
-                            _LOGGER.info("Token refresh successful")
-                        else:
-                            _LOGGER.warning(
-                                "Token refresh failed with status %s", rref.status
-                            )
-                        try:
-                            rref_json = await rref.json()
-                        except Exception as err:
-                            _LOGGER.debug("Refresh response is not JSON: %s", err)
-                            rref_json = None
-                        # try to update asset_owner_id if present
-                        try:
-                            if isinstance(rref_json, dict):
-                                u = rref_json.get("user")
-                                if isinstance(u, dict) and "assetOwnerId" in u:
-                                    self.asset_owner_id = int(u["assetOwnerId"])
-                                    _LOGGER.debug(
-                                        "Updated asset_owner_id to %s from refresh",
-                                        self.asset_owner_id,
-                                    )
-                        except (ValueError, TypeError, KeyError) as err:
-                            _LOGGER.debug("Could not extract assetOwnerId: %s", err)
+                    data = await resp.json()
                 except Exception as err:
-                    _LOGGER.error(
-                        "Token refresh request failed: %s", err, exc_info=True
+                    _LOGGER.debug("Response is not JSON for %s: %s", path, err)
+                    data = None
+
+                # Handle 401 -> try refresh-token once and retry original request
+                if resp.status == 401:
+                    _LOGGER.info(
+                        "Access token expired for %s, attempting refresh", path
+                    )
+                    try:
+                        # attempt refresh (no 5xx retries for refresh-token path)
+                        rref_cm: Any = sess.request(
+                            "GET",
+                            f"{self.base_url.rstrip('/')}/auth/refresh-token",
+                            headers=headers,
+                        )
+                        if asyncio.iscoroutine(rref_cm):
+                            rref_cm = await rref_cm
+                        async with rref_cm as rref:
+                            if rref.status == 200:
+                                _LOGGER.info("Token refresh successful")
+                            else:
+                                _LOGGER.warning(
+                                    "Token refresh failed with status %s", rref.status
+                                )
+                            try:
+                                rref_json = await rref.json()
+                            except Exception as err:
+                                _LOGGER.debug("Refresh response is not JSON: %s", err)
+                                rref_json = None
+                            # try to update asset_owner_id if present
+                            try:
+                                if isinstance(rref_json, dict):
+                                    u = rref_json.get("user")
+                                    if isinstance(u, dict) and "assetOwnerId" in u:
+                                        self.asset_owner_id = int(u["assetOwnerId"])
+                                        _LOGGER.debug(
+                                            "Updated asset_owner_id to %s from refresh",
+                                            self.asset_owner_id,
+                                        )
+                            except (ValueError, TypeError, KeyError) as err:
+                                _LOGGER.debug("Could not extract assetOwnerId: %s", err)
+                    except Exception as err:
+                        _LOGGER.error(
+                            "Token refresh request failed: %s", err, exc_info=True
+                        )
+
+                    # retry original request once after refresh
+                    _LOGGER.debug("Retrying original request to %s after refresh", path)
+                    cm2: Any = sess.request(method, url, headers=headers, **kwargs)
+                    if asyncio.iscoroutine(cm2):
+                        cm2 = await cm2
+                    async with cm2 as resp2:
+                        text2 = await resp2.text()
+                        try:
+                            data2 = await resp2.json()
+                        except Exception as err:
+                            _LOGGER.debug(
+                                "Retry response is not JSON for %s: %s", path, err
+                            )
+                            data2 = None
+
+                        if resp2.status == 401:
+                            _LOGGER.error(
+                                "Request to %s failed after token refresh: re-authentication required",
+                                path,
+                            )
+                            # Invoke callback if provided
+                            if self.on_auth_failed:
+                                try:
+                                    self.on_auth_failed()
+                                except Exception as err:
+                                    _LOGGER.error(
+                                        "on_auth_failed callback raised an exception: %s",
+                                        err,
+                                        exc_info=True,
+                                    )
+                            # Raise exception to notify caller
+                            raise AuthenticationError(
+                                "Authentication token expired and refresh failed. Please login again."
+                            )
+                        if resp2.status >= 400:
+                            _LOGGER.warning(
+                                "Request to %s failed after token refresh with status %s",
+                                path,
+                                resp2.status,
+                            )
+                            if raise_on_error:
+                                raise ApiError(
+                                    f"HTTP error after refresh: {resp2.status}",
+                                    status_code=resp2.status,
+                                    url=url,
+                                    payload=data2,
+                                )
+                        else:
+                            _LOGGER.debug(
+                                "Request to %s succeeded after refresh with status %s",
+                                path,
+                                resp2.status,
+                            )
+                        return resp2, data2, text2
+
+                # 5xx retries with backoff
+                if (
+                    resp.status >= 500
+                    and retry_5xx_attempts is not None
+                    and retry_5xx_attempts > 0
+                    and attempts < retry_5xx_attempts
+                ):
+                    next_attempt = attempts + 1
+                    delay = float(next_attempt)
+                    _LOGGER.warning(
+                        "Server error %s for %s, retrying in %.2fs (attempt %s/%s)",
+                        resp.status,
+                        path,
+                        delay,
+                        next_attempt,
+                        retry_5xx_attempts,
+                    )
+                    attempts = next_attempt
+                    await asyncio.sleep(delay)
+                    continue
+
+                if resp.status >= 400:
+                    _LOGGER.warning(
+                        "Request to %s returned error status %s", path, resp.status
+                    )
+                    if raise_on_error:
+                        raise ApiError(
+                            f"HTTP error: {resp.status}",
+                            status_code=resp.status,
+                            url=url,
+                            payload=data,
+                        )
+                elif resp.status >= 300:
+                    _LOGGER.debug(
+                        "Request to %s returned redirect status %s", path, resp.status
                     )
 
-                # retry original request once
-                _LOGGER.debug("Retrying original request to %s after refresh", path)
-                cm2: Any = sess.request(method, url, headers=headers, **kwargs)
-                if asyncio.iscoroutine(cm2):
-                    cm2 = await cm2
-                async with cm2 as resp2:
-                    text2 = await resp2.text()
-                    try:
-                        data2 = await resp2.json()
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Retry response is not JSON for %s: %s", path, err
-                        )
-                        data2 = None
+                return resp, data, text
 
-                    if resp2.status == 401:
-                        _LOGGER.error(
-                            "Request to %s failed after token refresh: re-authentication required",
-                            path,
-                        )
-                        # Invoke callback if provided
-                        if self.on_auth_failed:
-                            try:
-                                self.on_auth_failed()
-                            except Exception as err:
-                                _LOGGER.error(
-                                    "on_auth_failed callback raised an exception: %s",
-                                    err,
-                                    exc_info=True,
-                                )
-                        # Raise exception to notify caller
-                        raise AuthenticationError(
-                            "Authentication token expired and refresh failed. Please login again."
-                        )
-                    if resp2.status >= 400:
-                        _LOGGER.warning(
-                            "Request to %s failed after token refresh with status %s",
-                            path,
-                            resp2.status,
-                        )
-                    else:
-                        _LOGGER.debug(
-                            "Request to %s succeeded after refresh with status %s",
-                            path,
-                            resp2.status,
-                        )
-                    return resp2, data2, text2
-
-            if resp.status >= 400:
-                _LOGGER.warning(
-                    "Request to %s returned error status %s", path, resp.status
-                )
-            elif resp.status >= 300:
-                _LOGGER.debug(
-                    "Request to %s returned redirect status %s", path, resp.status
-                )
-
-            return resp, data, text
-
-    async def async_login(self, username: str, password: str) -> Dict[str, Any]:
+    async def async_login(
+        self, username: str, password: str, *, raise_on_error: bool = True
+    ) -> Dict[str, Any]:
         if self._session is None:
             _LOGGER.error("Login failed: aiohttp ClientSession is required")
             raise RuntimeError("aiohttp ClientSession is required for login")
@@ -475,7 +599,10 @@ class AsyncFlowerhubClient:
         _LOGGER.debug("Attempting login for user %s", username)
         url = f"{self.base_url.rstrip('/')}/auth/login"
         resp, data, text = await self._request(
-            url, method="POST", json={"username": username, "password": password}
+            url,
+            method="POST",
+            raise_on_error=raise_on_error,
+            json={"username": username, "password": password},
         )
 
         if resp.status == 200:
@@ -501,67 +628,118 @@ class AsyncFlowerhubClient:
         return {"status_code": resp.status, "json": data}
 
     async def async_fetch_asset_id(
-        self, asset_owner_id: Optional[int] = None
-    ) -> Optional[Any]:
+        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+    ) -> AssetIdResult:
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
-            _LOGGER.warning("Cannot fetch asset ID: asset_owner_id not set")
-            return None
+            _LOGGER.error("Cannot fetch asset ID: asset_owner_id not set")
+            raise ValueError("asset_owner_id is required for asset id fetch")
         path = f"/asset-owner/{aoid}/withAssetId"
-        resp, data, _ = await self._request(path)
-        if isinstance(data, dict):
-            if "assetId" in data:
-                try:
-                    self.asset_id = int(data["assetId"])
-                    _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
-                except (ValueError, TypeError) as err:
-                    _LOGGER.error("Failed to parse assetId from response: %s", err)
-                    self.asset_id = None
-            else:
-                _LOGGER.warning("Response missing assetId field")
-        else:
-            _LOGGER.warning("Unexpected response format for asset_id fetch")
-        return resp
+        resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
+        if not isinstance(data, dict):
+            msg = "Unexpected response format for asset_id fetch (expected dict)"
+            _LOGGER.error(msg)
+            if raise_on_error:
+                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+            return {"status_code": resp.status, "asset_id": None, "error": msg}
+        if "assetId" not in data:
+            msg = "Response missing assetId field"
+            _LOGGER.error(msg)
+            if raise_on_error:
+                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+            return {"status_code": resp.status, "asset_id": None, "error": msg}
+        try:
+            self.asset_id = int(data["assetId"])
+            _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
+        except (ValueError, TypeError) as err:
+            msg = f"Failed to parse assetId from response: {err}"
+            _LOGGER.error(msg)
+            self.asset_id = None
+            if raise_on_error:
+                raise ApiError(
+                    msg, status_code=resp.status, url=path, payload=data
+                ) from err
+            return {"status_code": resp.status, "asset_id": None, "error": msg}
+        return {"status_code": resp.status, "asset_id": self.asset_id, "error": None}
 
-    async def async_fetch_asset(self, asset_id: Optional[int] = None) -> Optional[Any]:
+    async def async_fetch_asset(
+        self, asset_id: Optional[int] = None, *, raise_on_error: bool = True
+    ) -> AssetFetchResult:
         aid = asset_id or self.asset_id
         if not aid:
-            _LOGGER.warning("Cannot fetch asset: asset_id not set")
-            return None
+            _LOGGER.error("Cannot fetch asset: asset_id not set")
+            raise ValueError("asset_id is required for asset fetch")
         path = f"/asset/{aid}"
-        resp, data, _ = await self._request(path)
-        if resp.status < 400 and isinstance(data, dict):
-            self.asset_info = data
-            _LOGGER.debug("Successfully fetched asset info for asset_id %s", aid)
-            fhs = data.get("flowerHubStatus")
-            if isinstance(fhs, dict):
-                now = datetime.datetime.now(datetime.timezone.utc)
-                self.flowerhub_status = FlowerHubStatus(
-                    status=fhs.get("status"), message=fhs.get("message"), updated_at=now
-                )
-                _LOGGER.debug(
-                    "FlowerHub status updated: %s - %s",
-                    self.flowerhub_status.status,
-                    self.flowerhub_status.message,
-                )
-            else:
-                _LOGGER.debug("Asset response missing flowerHubStatus")
-        elif resp.status >= 400:
-            _LOGGER.error("Failed to fetch asset %s: status %s", aid, resp.status)
-        return resp
+        resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
+        if not isinstance(data, dict):
+            msg = "Unexpected response format for asset fetch (expected dict)"
+            _LOGGER.error(msg)
+            if raise_on_error:
+                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+            return {
+                "status_code": resp.status,
+                "asset_info": None,
+                "flowerhub_status": None,
+                "error": msg,
+            }
+        # Validate flowerHubStatus
+        fhs = data.get("flowerHubStatus")
+        if not isinstance(fhs, dict):
+            msg = "Asset response missing flowerHubStatus"
+            _LOGGER.error(msg)
+            if raise_on_error:
+                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+            return {
+                "status_code": resp.status,
+                "asset_info": data,
+                "flowerhub_status": None,
+                "error": msg,
+            }
+        status_val = fhs.get("status")
+        if status_val is None or (
+            isinstance(status_val, str) and status_val.strip() == ""
+        ):
+            msg = "flowerHubStatus.status is required and must be non-empty"
+            _LOGGER.error(msg)
+            if raise_on_error:
+                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+            return {
+                "status_code": resp.status,
+                "asset_info": data,
+                "flowerhub_status": None,
+                "error": msg,
+            }
+
+        # Populate properties only after validation passed
+        self.asset_info = data
+        now = datetime.datetime.now(datetime.timezone.utc)
+        self.flowerhub_status = FlowerHubStatus(
+            status=str(status_val), message=fhs.get("message"), updated_at=now
+        )
+        _LOGGER.debug(
+            "FlowerHub status updated: %s - %s",
+            self.flowerhub_status.status,
+            self.flowerhub_status.message,
+        )
+        return {
+            "status_code": resp.status,
+            "asset_info": self.asset_info,
+            "flowerhub_status": self.flowerhub_status,
+            "error": None,
+        }
 
     async def async_fetch_system_notification(
-        self, slug: str = "active-flower"
+        self, slug: str = "active-flower", *, raise_on_error: bool = True
     ) -> Dict[str, Any]:
         """Fetch a system-notification payload by slug (e.g. ``active-flower`` or ``active-zavann``)."""
 
         path = f"/system-notification/{slug}"
-        resp, data, text = await self._request(path)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
         return {"status_code": resp.status, "json": data, "text": text}
 
     async def async_fetch_electricity_agreement(
-        self, asset_owner_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+    ) -> AgreementResult:
         """Fetch electricity agreement details for the given asset owner."""
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -571,25 +749,27 @@ class AsyncFlowerhubClient:
                 "asset_owner_id is required for electricity agreement fetch"
             )
         path = f"/asset-owner/{aoid}/electricity-agreement"
-        resp, data, text = await self._request(path)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
 
         if resp.status == 200:
             _LOGGER.debug("Successfully fetched electricity agreement")
-        elif resp.status >= 400:
-            _LOGGER.warning(
-                "Failed to fetch electricity agreement: status %s", resp.status
-            )
 
+        agreement = self._parse_electricity_agreement(data)
+        if agreement is None and raise_on_error:
+            msg = "Unexpected response type for electricity agreement (expected dict)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=path, payload=data)
         return {
             "status_code": resp.status,
             "json": data,
             "text": text,
-            "agreement": self._parse_electricity_agreement(data),
+            "agreement": agreement,
+            "error": None,
         }
 
     async def async_fetch_invoices(
-        self, asset_owner_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+    ) -> InvoicesResult:
         """Fetch invoice information for the given asset owner."""
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -597,24 +777,28 @@ class AsyncFlowerhubClient:
             _LOGGER.error("Cannot fetch invoices: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for invoice fetch")
         path = f"/asset-owner/{aoid}/invoice"
-        resp, data, text = await self._request(path)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
 
         if resp.status == 200:
             invoice_count = len(data) if isinstance(data, list) else 0
             _LOGGER.debug("Successfully fetched %s invoices", invoice_count)
-        elif resp.status >= 400:
-            _LOGGER.warning("Failed to fetch invoices: status %s", resp.status)
 
+        invoices = self._parse_invoices(data)
+        if invoices is None and raise_on_error:
+            msg = "Unexpected response type for invoices (expected list)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=path, payload=data)
         return {
             "status_code": resp.status,
             "json": data,
             "text": text,
-            "invoices": self._parse_invoices(data),
+            "invoices": invoices,
+            "error": None,
         }
 
     async def async_fetch_consumption(
-        self, asset_owner_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+    ) -> ConsumptionResult:
         """Fetch consumption data for the given asset owner."""
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -622,23 +806,27 @@ class AsyncFlowerhubClient:
             _LOGGER.error("Cannot fetch consumption: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for consumption fetch")
         path = f"/asset-owner/{aoid}/consumption"
-        resp, data, text = await self._request(path)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
 
         if resp.status == 200:
             record_count = len(data) if isinstance(data, list) else 0
             _LOGGER.debug("Successfully fetched %s consumption records", record_count)
-        elif resp.status >= 400:
-            _LOGGER.warning("Failed to fetch consumption: status %s", resp.status)
 
+        consumption = self._parse_consumption(data)
+        if consumption is None and raise_on_error:
+            msg = "Unexpected response type for consumption (expected list)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=path, payload=data)
         return {
             "status_code": resp.status,
             "json": data,
             "text": text,
-            "consumption": self._parse_consumption(data),
+            "consumption": consumption,
+            "error": None,
         }
 
     async def async_readout_sequence(
-        self, asset_owner_id: Optional[int] = None
+        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
     ) -> Dict[str, Any]:
         ao = asset_owner_id or self.asset_owner_id
         if not ao:
@@ -646,10 +834,12 @@ class AsyncFlowerhubClient:
             raise ValueError("asset_owner_id is required for readout")
 
         _LOGGER.debug("Starting readout sequence for asset_owner_id %s", ao)
-        with_resp = await self.async_fetch_asset_id(ao)
+        with_resp = await self.async_fetch_asset_id(ao, raise_on_error=raise_on_error)
         asset_resp = None
         if self.asset_id:
-            asset_resp = await self.async_fetch_asset(self.asset_id)
+            asset_resp = await self.async_fetch_asset(
+                self.asset_id, raise_on_error=raise_on_error
+            )
             _LOGGER.debug("Readout sequence completed successfully")
         else:
             _LOGGER.warning("Readout sequence incomplete: asset_id not found")
