@@ -289,6 +289,15 @@ class AsyncFlowerhubClient:
         timeout_total: Optional[float] = None,
         **kwargs,
     ) -> Any:
+        """Low-level HTTP request wrapper with refresh, retries and timeouts.
+
+        - Handles `401` by attempting token refresh and retrying once.
+        - Retries `5xx` and `429` with small jittered backoff; honors `Retry-After`.
+        - Applies `aiohttp.ClientTimeout(total=...)` via `timeout_total` or client default.
+        - Raises `ApiError` for `>=400` when `raise_on_error=True`.
+
+        Returns a tuple `(resp, json, text)`.
+        """
         sess = self._session
         if sess is None:
             _LOGGER.error("Request failed: aiohttp ClientSession is required")
@@ -354,6 +363,10 @@ class AsyncFlowerhubClient:
     async def async_login(
         self, username: str, password: str, *, raise_on_error: bool = True
     ) -> Dict[str, Any]:
+        """Login and initialize `asset_owner_id` when available.
+
+        Returns a dict with `status_code` and parsed `json` payload.
+        """
         if self._session is None:
             _LOGGER.error("Login failed: aiohttp ClientSession is required")
             raise RuntimeError("aiohttp ClientSession is required for login")
@@ -392,6 +405,11 @@ class AsyncFlowerhubClient:
     async def async_fetch_asset_id(
         self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
     ) -> AssetIdResult:
+        """Fetch the asset ID for an asset owner.
+
+        Requires `asset_owner_id` either passed or preset on the client.
+        Returns `AssetIdResult` with `asset_id` or an `error` string.
+        """
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
             _LOGGER.error("Cannot fetch asset ID: asset_owner_id not set")
@@ -443,6 +461,11 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> AssetFetchResult:
+        """Fetch asset information and update `flowerhub_status`.
+
+        Accepts per-call `retry_5xx_attempts` and `timeout_total` overrides.
+        Returns `AssetFetchResult` with `asset_info` and `flowerhub_status`.
+        """
         aid = asset_id or self.asset_id
         if not aid:
             _LOGGER.error("Cannot fetch asset: asset_id not set")
@@ -508,7 +531,11 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Fetch a system-notification payload by slug (e.g. ``active-flower`` or ``active-zavann``)."""
+        """Fetch a system-notification payload by slug.
+
+        Useful for banners like `active-flower` or `active-zavann`.
+        Returns dict with `status_code`, `json`, and `text`.
+        """
 
         path = f"/system-notification/{slug}"
         resp, data, text = await self._request(
@@ -527,7 +554,10 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> AgreementResult:
-        """Fetch electricity agreement details for the given asset owner."""
+        """Fetch electricity agreement details for the given asset owner.
+
+        Returns `AgreementResult` with the parsed agreement or an error.
+        """
 
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
@@ -567,7 +597,10 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> InvoicesResult:
-        """Fetch invoice information for the given asset owner."""
+        """Fetch invoice information for the given asset owner.
+
+        Returns `InvoicesResult` with parsed invoices list or an error.
+        """
 
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
@@ -618,7 +651,10 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> ConsumptionResult:
-        """Fetch consumption data for the given asset owner."""
+        """Fetch consumption data for the given asset owner.
+
+        Returns `ConsumptionResult` with parsed records or an error.
+        """
 
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
@@ -669,6 +705,10 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> Dict[str, Any]:
+        """Run a readout sequence: discover asset ID then fetch asset.
+
+        Returns a dict with `asset_owner_id`, `asset_id`, and responses.
+        """
         ao = asset_owner_id or self.asset_owner_id
         if not ao:
             _LOGGER.error("Cannot perform readout: asset_owner_id not set")
@@ -705,9 +745,9 @@ class AsyncFlowerhubClient:
         on_update: Optional[Callable[[FlowerHubStatus], None]] = None,
         result_queue: Optional["asyncio.Queue"] = None,
     ) -> asyncio.Task:
-        """Start a background asyncio Task that periodically fetches the asset.
+        """Start a background Task that periodically fetches the asset.
 
-        Returns the asyncio.Task instance. Call :meth:`stop_periodic_asset_fetch` to cancel.
+        Returns the created Task. Call `stop_periodic_asset_fetch()` to cancel.
         """
         if interval_seconds < 5.0:
             _LOGGER.error(
@@ -775,6 +815,7 @@ class AsyncFlowerhubClient:
         return task
 
     def stop_periodic_asset_fetch(self) -> None:
+        """Cancel the periodic asset fetch task if running."""
         t = getattr(self, "_asset_fetch_task", None)
         if t and not t.cancelled():
             _LOGGER.info("Stopping periodic asset fetch")
@@ -782,21 +823,28 @@ class AsyncFlowerhubClient:
         self._asset_fetch_task = None
 
     def is_asset_fetch_running(self) -> bool:
+        """Return True if the periodic asset fetch task is active."""
         t = getattr(self, "_asset_fetch_task", None)
         return bool(t and not t.done())
 
     # ----- Lifecycle & concurrency helpers -----
     async def close(self) -> None:
-        """Cancel background tasks. Does not close injected sessions."""
+        """Cancel background tasks; does not close an injected session."""
         self.stop_periodic_asset_fetch()
 
     async def __aenter__(self) -> "AsyncFlowerhubClient":
+        """Enter async context manager; returns the client itself."""
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
+        """Exit async context manager, ensuring cleanup via `close()`."""
         await self.close()
 
     def set_max_concurrency(self, max_requests: int) -> None:
+        """Set a simple semaphore rate limiter for concurrent requests.
+
+        Pass 0/None to disable.
+        """
         if max_requests and max_requests > 0:
             self._semaphore = asyncio.Semaphore(int(max_requests))
         else:
