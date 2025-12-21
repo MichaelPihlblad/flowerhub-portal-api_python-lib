@@ -8,12 +8,39 @@ so it can be used with Home Assistant's event loop and `DataUpdateCoordinator`.
 from __future__ import annotations
 
 import asyncio
-import datetime
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TypedDict
+import random
+from typing import Any, Callable, Dict, List, Optional
 
-_LOGGER = logging.getLogger(__name__)
+from .exceptions import ApiError, AuthenticationError
+from .parsers import (
+    ensure_dict,
+    ensure_list,
+    parse_agreement_state,
+    parse_asset_id_value,
+    parse_consumption,
+    parse_electricity_agreement,
+    parse_invoice,
+    parse_invoice_line,
+    parse_invoices,
+    require_field,
+    safe_float,
+    safe_int,
+    validate_flowerhub_status,
+)
+from .types import (
+    AgreementResult,
+    AgreementState,
+    AssetFetchResult,
+    AssetIdResult,
+    ConsumptionRecord,
+    ConsumptionResult,
+    ElectricityAgreement,
+    FlowerHubStatus,
+    Invoice,
+    InvoiceLine,
+    InvoicesResult,
+)
 
 aiohttp: Any
 try:
@@ -21,244 +48,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     aiohttp = None
 
-
-class AuthenticationError(Exception):
-    """Raised when authentication token expires and refresh fails.
-
-    This exception indicates that the user needs to login again.
-    """
-
-
-class ApiError(Exception):
-    """Raised for non-auth HTTP errors and payload validation issues.
-
-    Attributes:
-    - status_code: HTTP status code when applicable (None for payload validation errors)
-    - url: request URL (if known)
-    - message: human-readable error message
-    - payload: optional response payload for debugging
-    """
-
-    def __init__(
-        self,
-        message: str,
-        status_code: Optional[int] = None,
-        url: Optional[str] = None,
-        payload: Any = None,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.url = url
-        self.payload = payload
-
-
-@dataclass
-class User:
-    """User information returned from login."""
-
-    id: int
-    email: str
-    role: int
-    name: Optional[str]
-    distributorId: Optional[int]
-    installerId: Optional[int]
-    assetOwnerId: int
-
-
-@dataclass
-class LoginResponse:
-    """Response from login endpoint."""
-
-    user: User
-    refreshTokenExpirationDate: str
-
-
-@dataclass
-class FlowerHubStatus:
-    """Status information for the FlowerHub system."""
-
-    status: Optional[str] = None
-    message: Optional[str] = None
-    updated_at: Optional[datetime.datetime] = None
-
-    @property
-    def updated_timestamp(self) -> Optional[datetime.datetime]:
-        return self.updated_at
-
-    def age_seconds(self) -> Optional[float]:
-        if not self.updated_at:
-            return None
-        return (
-            datetime.datetime.now(datetime.timezone.utc) - self.updated_at
-        ).total_seconds()
-
-
-@dataclass
-class Manufacturer:
-    """Manufacturer information."""
-
-    manufacturerId: int
-    manufacturerName: str
-
-
-@dataclass
-class Inverter:
-    """Inverter specifications."""
-
-    manufacturerId: int
-    manufacturerName: str
-    inverterModelId: int
-    name: str
-    numberOfBatteryStacksSupported: int
-    capacityId: int
-    powerCapacity: int
-
-
-@dataclass
-class Battery:
-    """Battery specifications."""
-
-    manufacturerId: int
-    manufacturerName: str
-    batteryModelId: int
-    name: str
-    minNumberOfBatteryModules: int
-    maxNumberOfBatteryModules: int
-    capacityId: int
-    energyCapacity: int
-    powerCapacity: int
-
-
-@dataclass
-class Asset:
-    """Complete asset information."""
-
-    id: int
-    inverter: Inverter
-    battery: Battery
-    fuseSize: int
-    flowerHubStatus: FlowerHubStatus
-    isInstalled: bool
-
-
-@dataclass
-class AssetOwner:
-    """Asset owner information."""
-
-    id: int
-    assetId: int
-    firstName: str
-
-
-@dataclass
-class AgreementState:
-    """State metadata for electricity agreements (consumption/production)."""
-
-    stateCategory: Optional[str] = None
-    stateId: Optional[int] = None
-    siteId: Optional[int] = None
-    startDate: Optional[str] = None
-    terminationDate: Optional[str] = None
-
-
-@dataclass
-class ElectricityAgreement:
-    """Electricity agreement covering consumption and production sites."""
-
-    consumption: Optional[AgreementState] = None
-    production: Optional[AgreementState] = None
-
-
-@dataclass
-class InvoiceLine:
-    """Single invoice line item."""
-
-    item_id: str
-    name: str
-    description: str
-    price: str
-    volume: str
-    amount: str
-    settlements: Any
-
-
-@dataclass
-class Invoice:
-    """Invoice structure, optionally containing sub group invoices."""
-
-    id: str
-    due_date: Optional[str]
-    ocr: Optional[str]
-    invoice_status: Optional[str]
-    invoice_has_settlements: Optional[str]
-    invoice_status_id: Optional[str]
-    invoice_create_date: Optional[str]
-    invoiced_month: Optional[str]
-    invoice_period: Optional[str]
-    invoice_date: Optional[str]
-    total_amount: Optional[str]
-    remaining_amount: Optional[str]
-    invoice_lines: List[InvoiceLine] = field(default_factory=list)
-    invoice_pdf: Optional[str] = None
-    invoice_type_id: Optional[str] = None
-    invoice_type: Optional[str] = None
-    claim_status: Optional[str] = None
-    claim_reminder_pdf: Optional[str] = None
-    site_id: Optional[str] = None
-    sub_group_invoices: List["Invoice"] = field(default_factory=list)
-    current_payment_type_id: Optional[str] = None
-    current_payment_type_name: Optional[str] = None
-
-
-@dataclass
-class ConsumptionRecord:
-    """Consumption history entry (reading or calculated)."""
-
-    site_id: str
-    valid_from: str
-    valid_to: Optional[str]
-    invoiced_month: str
-    volume: Optional[float]
-    type: str
-    type_id: Optional[int]
-
-
-# ----- Typed results -----
-class AssetIdResult(TypedDict):
-    status_code: int
-    asset_id: Optional[int]
-    error: Optional[str]
-
-
-class AssetFetchResult(TypedDict):
-    status_code: int
-    asset_info: Optional[Dict[str, Any]]
-    flowerhub_status: Optional[FlowerHubStatus]
-    error: Optional[str]
-
-
-class AgreementResult(TypedDict):
-    status_code: int
-    agreement: Optional[ElectricityAgreement]
-    json: Any
-    text: str
-    error: Optional[str]
-
-
-class InvoicesResult(TypedDict):
-    status_code: int
-    invoices: Optional[List[Invoice]]
-    json: Any
-    text: str
-    error: Optional[str]
-
-
-class ConsumptionResult(TypedDict):
-    status_code: int
-    consumption: Optional[List[ConsumptionRecord]]
-    json: Any
-    text: str
-    error: Optional[str]
+_LOGGER = logging.getLogger(__name__)
 
 
 class AsyncFlowerhubClient:
@@ -267,11 +57,13 @@ class AsyncFlowerhubClient:
         base_url: str = "https://api.portal.flowerhub.se",
         session: Optional["aiohttp.ClientSession"] = None,
         on_auth_failed: Optional[Callable[[], None]] = None,
+        on_api_error: Optional[Callable[["ApiError"], None]] = None,
     ):
         # session or aiohttp may be provided; actual request-time will raise if session is missing
         self.base_url = base_url
         self._session: Optional["aiohttp.ClientSession"] = session
         self.on_auth_failed = on_auth_failed
+        self.on_api_error = on_api_error
         self.asset_owner_id: Optional[int] = None
         self.asset_id: Optional[int] = None
         self.asset_info: Optional[Dict[str, Any]] = None
@@ -279,129 +71,213 @@ class AsyncFlowerhubClient:
         self._asset_fetch_task: Optional[asyncio.Task[Any]] = None
         # Optional total timeout in seconds for requests (10s default). Set to 0/None to disable.
         self.request_timeout_total: Optional[float] = 10.0
+        # Optional concurrency limiter
+        self._semaphore: Optional[asyncio.Semaphore] = None
 
+    # Compatibility wrappers delegating to shared parser helpers
     @staticmethod
     def _safe_int(value: Any) -> Optional[int]:
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
+        return safe_int(value)
 
     @staticmethod
     def _safe_float(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
+        return safe_float(value)
 
     @classmethod
     def _parse_agreement_state(cls, payload: Dict[str, Any]) -> AgreementState:
-        return AgreementState(
-            stateCategory=payload.get("stateCategory"),
-            stateId=cls._safe_int(payload.get("stateId")),
-            siteId=cls._safe_int(payload.get("siteId")),
-            startDate=payload.get("startDate"),
-            terminationDate=payload.get("terminationDate"),
-        )
+        return parse_agreement_state(payload)
 
     @classmethod
     def _parse_electricity_agreement(cls, data: Any) -> Optional[ElectricityAgreement]:
-        if not isinstance(data, dict):
-            return None
-        consumption = data.get("consumption")
-        production = data.get("production")
-        return ElectricityAgreement(
-            consumption=(
-                cls._parse_agreement_state(consumption)
-                if isinstance(consumption, dict)
-                else None
-            ),
-            production=(
-                cls._parse_agreement_state(production)
-                if isinstance(production, dict)
-                else None
-            ),
-        )
+        return parse_electricity_agreement(data)
 
     @classmethod
     def _parse_invoice_line(cls, payload: Dict[str, Any]) -> InvoiceLine:
-        return InvoiceLine(
-            item_id=str(payload.get("item_id", "")),
-            name=payload.get("name", ""),
-            description=payload.get("description", ""),
-            price=str(payload.get("price", "")),
-            volume=str(payload.get("volume", "")),
-            amount=str(payload.get("amount", "")),
-            settlements=payload.get("settlements", []),
-        )
+        return parse_invoice_line(payload)
 
     @classmethod
     def _parse_invoice(cls, payload: Dict[str, Any]) -> Invoice:
-        lines: List[InvoiceLine] = []
-        for entry in payload.get("invoice_lines", []):
-            if isinstance(entry, dict):
-                lines.append(cls._parse_invoice_line(entry))
-
-        sub_invoices: List[Invoice] = []
-        for sub in payload.get("sub_group_invoices", []):
-            if isinstance(sub, dict):
-                sub_invoices.append(cls._parse_invoice(sub))
-
-        return Invoice(
-            id=str(payload.get("id", "")),
-            due_date=payload.get("due_date"),
-            ocr=payload.get("ocr"),
-            invoice_status=payload.get("invoice_status"),
-            invoice_has_settlements=payload.get("invoice_has_settlements"),
-            invoice_status_id=payload.get("invoice_status_id"),
-            invoice_create_date=payload.get("invoice_create_date"),
-            invoiced_month=payload.get("invoiced_month"),
-            invoice_period=payload.get("invoice_period"),
-            invoice_date=payload.get("invoice_date"),
-            total_amount=payload.get("total_amount"),
-            remaining_amount=payload.get("remaining_amount"),
-            invoice_lines=lines,
-            invoice_pdf=payload.get("invoice_pdf"),
-            invoice_type_id=payload.get("invoice_type_id"),
-            invoice_type=payload.get("invoice_type"),
-            claim_status=payload.get("claim_status"),
-            claim_reminder_pdf=payload.get("claim_reminder_pdf"),
-            site_id=payload.get("site_id"),
-            sub_group_invoices=sub_invoices,
-            current_payment_type_id=payload.get("current_payment_type_id"),
-            current_payment_type_name=payload.get("current_payment_type_name"),
-        )
+        return parse_invoice(payload)
 
     @classmethod
     def _parse_invoices(cls, data: Any) -> Optional[List[Invoice]]:
-        if not isinstance(data, list):
-            return None
-        invoices: List[Invoice] = []
-        for item in data:
-            if isinstance(item, dict):
-                invoices.append(cls._parse_invoice(item))
-        return invoices
+        return parse_invoices(data)
 
     @classmethod
     def _parse_consumption(cls, data: Any) -> Optional[List[ConsumptionRecord]]:
-        if not isinstance(data, list):
-            return None
-        records: List[ConsumptionRecord] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            records.append(
-                ConsumptionRecord(
-                    site_id=str(item.get("site_id", "")),
-                    valid_from=item.get("valid_from", ""),
-                    valid_to=item.get("valid_to") or None,
-                    invoiced_month=item.get("invoiced_month", ""),
-                    volume=cls._safe_float(item.get("volume")),
-                    type=item.get("type", ""),
-                    type_id=cls._safe_int(item.get("type_id")),
-                )
+        return parse_consumption(data)
+
+    # ----- Internal helpers -----
+    def _build_url(self, path: str) -> str:
+        return (
+            path
+            if path.startswith("http")
+            else f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
+        )
+
+    def _apply_timeout(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        # Per-call override via timeout_total
+        override = kwargs.pop("timeout_total", None)
+        total = (
+            override
+            if isinstance(override, (int, float))
+            else self.request_timeout_total
+        )
+        if aiohttp and total is not None and total > 0 and "timeout" not in kwargs:
+            try:
+                kwargs["timeout"] = aiohttp.ClientTimeout(total=float(total))
+            except Exception as err:  # pragma: no cover - best effort
+                _LOGGER.debug("Failed to construct ClientTimeout: %s", err)
+        return kwargs
+
+    @staticmethod
+    async def _read_response(resp: Any) -> tuple[Any, str]:
+        text = await resp.text()
+        try:
+            data = await resp.json()
+        except Exception as err:  # pragma: no cover - non-JSON responses
+            _LOGGER.debug("Response is not JSON: %s", err)
+            data = None
+        return data, text
+
+    @staticmethod
+    def _should_retry_5xx(
+        status: int, attempts: int, retry_5xx_attempts: Optional[int]
+    ) -> bool:
+        return (
+            status >= 500
+            and retry_5xx_attempts not in (None, 0)
+            and attempts < retry_5xx_attempts
+        )
+
+    @staticmethod
+    def _log_status(path: str, status: int) -> None:
+        if status >= 400:
+            _LOGGER.warning("Request to %s returned error status %s", path, status)
+        elif status >= 300:
+            _LOGGER.debug("Request to %s returned redirect status %s", path, status)
+
+    def _maybe_raise_http_error(
+        self, resp: Any, data: Any, url: str, raise_on_error: bool
+    ) -> None:
+        if resp.status >= 400 and raise_on_error:
+            err = ApiError(
+                f"HTTP error: {resp.status}",
+                status_code=resp.status,
+                url=url,
+                payload=data,
             )
-        return records
+            if self.on_api_error:
+                try:
+                    self.on_api_error(err)
+                except Exception as cb_err:  # pragma: no cover
+                    _LOGGER.debug("on_api_error callback failed: %s", cb_err)
+            raise err
+
+    async def _attempt_refresh(
+        self, sess: "aiohttp.ClientSession", headers: Dict[str, str]
+    ) -> bool:
+        try:
+            rref_cm: Any = sess.request(
+                "GET",
+                f"{self.base_url.rstrip('/')}/auth/refresh-token",
+                headers=headers,
+            )
+            if asyncio.iscoroutine(rref_cm):
+                rref_cm = await rref_cm
+            async with rref_cm as rref:
+                if rref.status == 200:
+                    _LOGGER.info("Token refresh successful")
+                else:
+                    _LOGGER.warning("Token refresh failed with status %s", rref.status)
+                try:
+                    rref_json = await rref.json()
+                except Exception as err:  # pragma: no cover - non-JSON refresh
+                    _LOGGER.debug("Refresh response is not JSON: %s", err)
+                    rref_json = None
+                try:
+                    if isinstance(rref_json, dict):
+                        u = rref_json.get("user")
+                        if isinstance(u, dict) and "assetOwnerId" in u:
+                            self.asset_owner_id = int(u["assetOwnerId"])
+                            _LOGGER.debug(
+                                "Updated asset_owner_id to %s from refresh",
+                                self.asset_owner_id,
+                            )
+                except (ValueError, TypeError, KeyError) as err:  # pragma: no cover
+                    _LOGGER.debug("Could not extract assetOwnerId: %s", err)
+                return rref.status == 200
+        except Exception as err:  # pragma: no cover - network errors
+            _LOGGER.error("Token refresh request failed: %s", err, exc_info=True)
+            return False
+
+    async def _retry_after_refresh(
+        self,
+        sess: "aiohttp.ClientSession",
+        method: str,
+        url: str,
+        *,
+        headers: Dict[str, str],
+        kwargs: Dict[str, Any],
+        raise_on_error: bool,
+        path: str,
+    ) -> tuple[Any, Any, str]:
+        await self._attempt_refresh(sess, headers)
+        cm2: Any = sess.request(method, url, headers=headers, **kwargs)
+        if asyncio.iscoroutine(cm2):
+            cm2 = await cm2
+        async with cm2 as resp2:
+            data2, text2 = await self._read_response(resp2)
+            if resp2.status == 401:
+                _LOGGER.error(
+                    "Request to %s failed after token refresh: re-authentication required",
+                    path,
+                )
+                if self.on_auth_failed:
+                    try:
+                        self.on_auth_failed()
+                    except Exception as err:  # pragma: no cover - user callback
+                        _LOGGER.error(
+                            "on_auth_failed callback raised an exception: %s",
+                            err,
+                            exc_info=True,
+                        )
+                raise AuthenticationError(
+                    "Authentication token expired and refresh failed. Please login again."
+                )
+            self._log_status(path, resp2.status)
+            self._maybe_raise_http_error(resp2, data2, url, raise_on_error)
+            return resp2, data2, text2
+
+    async def _send_request(
+        self,
+        sess: "aiohttp.ClientSession",
+        method: str,
+        url: str,
+        *,
+        headers: Dict[str, str],
+        kwargs: Dict[str, Any],
+    ) -> tuple[Any, Any, str]:
+        async def _do():
+            cm: Any = sess.request(method, url, headers=headers, **kwargs)
+            if asyncio.iscoroutine(cm):
+                cm = await cm
+            async with cm as resp:
+                data, text = await self._read_response(resp)
+                return resp, data, text
+
+        if self._semaphore is not None:
+            async with self._semaphore:
+                return await _do()
+        return await _do()
+
+    @staticmethod
+    def _compute_delay(attempts: int, retry_after: Optional[float] = None) -> float:
+        if retry_after is not None and retry_after > 0:
+            return float(retry_after)
+        # Simple linear backoff with jitter
+        base = float(max(1, attempts))
+        return base + random.uniform(0.0, 0.3)
 
     async def _request(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
         self,
@@ -410,184 +286,70 @@ class AsyncFlowerhubClient:
         *,
         raise_on_error: bool = True,
         retry_5xx_attempts: Optional[int] = 2,
+        timeout_total: Optional[float] = None,
         **kwargs,
     ) -> Any:
         sess = self._session
         if sess is None:
             _LOGGER.error("Request failed: aiohttp ClientSession is required")
             raise RuntimeError("aiohttp ClientSession is required")
-        url = (
-            path
-            if path.startswith("http")
-            else f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
-        )
+
+        url = self._build_url(path)
         headers = {"Origin": "https://portal.flowerhub.se", **kwargs.pop("headers", {})}
+        # allow per-call timeout override
+        merged_kwargs = dict(kwargs)
+        if timeout_total is not None:
+            merged_kwargs["timeout_total"] = timeout_total
+        kwargs = self._apply_timeout(merged_kwargs)
 
         _LOGGER.debug("Making %s request to %s", method, path)
-        # Add timeout if configured and not overridden; 0/None disables
-        if (
-            aiohttp
-            and self.request_timeout_total is not None
-            and self.request_timeout_total > 0
-            and "timeout" not in kwargs
-        ):
-            try:
-                kwargs["timeout"] = aiohttp.ClientTimeout(
-                    total=self.request_timeout_total
-                )
-            except Exception as err:
-                _LOGGER.debug("Failed to construct ClientTimeout: %s", err)
 
         attempts = 0
-
         while True:
-            cm: Any = sess.request(method, url, headers=headers, **kwargs)
-            if asyncio.iscoroutine(cm):
-                cm = await cm
-            async with cm as resp:
-                text = await resp.text()
-                try:
-                    data = await resp.json()
-                except Exception as err:
-                    _LOGGER.debug("Response is not JSON for %s: %s", path, err)
-                    data = None
+            resp, data, text = await self._send_request(
+                sess, method, url, headers=headers, kwargs=kwargs
+            )
 
-                # Handle 401 -> try refresh-token once and retry original request
-                if resp.status == 401:
-                    _LOGGER.info(
-                        "Access token expired for %s, attempting refresh", path
-                    )
-                    try:
-                        # attempt refresh (no 5xx retries for refresh-token path)
-                        rref_cm: Any = sess.request(
-                            "GET",
-                            f"{self.base_url.rstrip('/')}/auth/refresh-token",
-                            headers=headers,
-                        )
-                        if asyncio.iscoroutine(rref_cm):
-                            rref_cm = await rref_cm
-                        async with rref_cm as rref:
-                            if rref.status == 200:
-                                _LOGGER.info("Token refresh successful")
-                            else:
-                                _LOGGER.warning(
-                                    "Token refresh failed with status %s", rref.status
-                                )
-                            try:
-                                rref_json = await rref.json()
-                            except Exception as err:
-                                _LOGGER.debug("Refresh response is not JSON: %s", err)
-                                rref_json = None
-                            # try to update asset_owner_id if present
-                            try:
-                                if isinstance(rref_json, dict):
-                                    u = rref_json.get("user")
-                                    if isinstance(u, dict) and "assetOwnerId" in u:
-                                        self.asset_owner_id = int(u["assetOwnerId"])
-                                        _LOGGER.debug(
-                                            "Updated asset_owner_id to %s from refresh",
-                                            self.asset_owner_id,
-                                        )
-                            except (ValueError, TypeError, KeyError) as err:
-                                _LOGGER.debug("Could not extract assetOwnerId: %s", err)
-                    except Exception as err:
-                        _LOGGER.error(
-                            "Token refresh request failed: %s", err, exc_info=True
-                        )
+            if resp.status == 401:
+                _LOGGER.info("Access token expired for %s, attempting refresh", path)
+                return await self._retry_after_refresh(
+                    sess,
+                    method,
+                    url,
+                    headers=headers,
+                    kwargs=kwargs,
+                    raise_on_error=raise_on_error,
+                    path=path,
+                )
 
-                    # retry original request once after refresh
-                    _LOGGER.debug("Retrying original request to %s after refresh", path)
-                    cm2: Any = sess.request(method, url, headers=headers, **kwargs)
-                    if asyncio.iscoroutine(cm2):
-                        cm2 = await cm2
-                    async with cm2 as resp2:
-                        text2 = await resp2.text()
-                        try:
-                            data2 = await resp2.json()
-                        except Exception as err:
-                            _LOGGER.debug(
-                                "Retry response is not JSON for %s: %s", path, err
-                            )
-                            data2 = None
+            # Retry on 5xx and 429 Too Many Requests
+            retry_after_hdr = (
+                resp.headers.get("Retry-After") if hasattr(resp, "headers") else None
+            )
+            try:
+                retry_after = float(retry_after_hdr) if retry_after_hdr else None
+            except Exception:
+                retry_after = None
+            if (
+                self._should_retry_5xx(resp.status, attempts, retry_5xx_attempts)
+                or resp.status == 429
+            ):
+                attempts += 1
+                delay = self._compute_delay(attempts, retry_after)
+                _LOGGER.warning(
+                    "Retrying %s for %s in %.2fs (attempt %s/%s)",
+                    resp.status,
+                    path,
+                    delay,
+                    attempts,
+                    retry_5xx_attempts,
+                )
+                await asyncio.sleep(delay)
+                continue
 
-                        if resp2.status == 401:
-                            _LOGGER.error(
-                                "Request to %s failed after token refresh: re-authentication required",
-                                path,
-                            )
-                            # Invoke callback if provided
-                            if self.on_auth_failed:
-                                try:
-                                    self.on_auth_failed()
-                                except Exception as err:
-                                    _LOGGER.error(
-                                        "on_auth_failed callback raised an exception: %s",
-                                        err,
-                                        exc_info=True,
-                                    )
-                            # Raise exception to notify caller
-                            raise AuthenticationError(
-                                "Authentication token expired and refresh failed. Please login again."
-                            )
-                        if resp2.status >= 400:
-                            _LOGGER.warning(
-                                "Request to %s failed after token refresh with status %s",
-                                path,
-                                resp2.status,
-                            )
-                            if raise_on_error:
-                                raise ApiError(
-                                    f"HTTP error after refresh: {resp2.status}",
-                                    status_code=resp2.status,
-                                    url=url,
-                                    payload=data2,
-                                )
-                        else:
-                            _LOGGER.debug(
-                                "Request to %s succeeded after refresh with status %s",
-                                path,
-                                resp2.status,
-                            )
-                        return resp2, data2, text2
-
-                # 5xx retries with backoff
-                if (
-                    resp.status >= 500
-                    and retry_5xx_attempts is not None
-                    and retry_5xx_attempts > 0
-                    and attempts < retry_5xx_attempts
-                ):
-                    next_attempt = attempts + 1
-                    delay = float(next_attempt)
-                    _LOGGER.warning(
-                        "Server error %s for %s, retrying in %.2fs (attempt %s/%s)",
-                        resp.status,
-                        path,
-                        delay,
-                        next_attempt,
-                        retry_5xx_attempts,
-                    )
-                    attempts = next_attempt
-                    await asyncio.sleep(delay)
-                    continue
-
-                if resp.status >= 400:
-                    _LOGGER.warning(
-                        "Request to %s returned error status %s", path, resp.status
-                    )
-                    if raise_on_error:
-                        raise ApiError(
-                            f"HTTP error: {resp.status}",
-                            status_code=resp.status,
-                            url=url,
-                            payload=data,
-                        )
-                elif resp.status >= 300:
-                    _LOGGER.debug(
-                        "Request to %s returned redirect status %s", path, resp.status
-                    )
-
-                return resp, data, text
+            self._log_status(path, resp.status)
+            self._maybe_raise_http_error(resp, data, url, raise_on_error)
+            return resp, data, text
 
     async def async_login(
         self, username: str, password: str, *, raise_on_error: bool = True
@@ -635,87 +397,97 @@ class AsyncFlowerhubClient:
             _LOGGER.error("Cannot fetch asset ID: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for asset id fetch")
         path = f"/asset-owner/{aoid}/withAssetId"
+        url = self._build_url(path)
         resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
-        if not isinstance(data, dict):
-            msg = "Unexpected response format for asset_id fetch (expected dict)"
-            _LOGGER.error(msg)
-            if raise_on_error:
-                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
-            return {"status_code": resp.status, "asset_id": None, "error": msg}
-        if "assetId" not in data:
-            msg = "Response missing assetId field"
-            _LOGGER.error(msg)
-            if raise_on_error:
-                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
-            return {"status_code": resp.status, "asset_id": None, "error": msg}
-        try:
-            self.asset_id = int(data["assetId"])
-            _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
-        except (ValueError, TypeError) as err:
-            msg = f"Failed to parse assetId from response: {err}"
-            _LOGGER.error(msg)
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset_id fetch",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {"status_code": resp.status, "asset_id": None, "error": err}
+
+        asset_val, err = require_field(
+            data_dict,
+            "assetId",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if asset_val is None:
+            return {"status_code": resp.status, "asset_id": None, "error": err}
+
+        asset_id_int, err = parse_asset_id_value(
+            asset_val,
+            status_code=resp.status,
+            url=url,
+            payload=data_dict,
+            raise_on_error=raise_on_error,
+        )
+        if asset_id_int is None:
             self.asset_id = None
-            if raise_on_error:
-                raise ApiError(
-                    msg, status_code=resp.status, url=path, payload=data
-                ) from err
-            return {"status_code": resp.status, "asset_id": None, "error": msg}
+            return {"status_code": resp.status, "asset_id": None, "error": err}
+
+        self.asset_id = asset_id_int
+        _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
         return {"status_code": resp.status, "asset_id": self.asset_id, "error": None}
 
     async def async_fetch_asset(
-        self, asset_id: Optional[int] = None, *, raise_on_error: bool = True
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> AssetFetchResult:
         aid = asset_id or self.asset_id
         if not aid:
             _LOGGER.error("Cannot fetch asset: asset_id not set")
             raise ValueError("asset_id is required for asset fetch")
         path = f"/asset/{aid}"
-        resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
-        if not isinstance(data, dict):
-            msg = "Unexpected response format for asset fetch (expected dict)"
-            _LOGGER.error(msg)
-            if raise_on_error:
-                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+        url = self._build_url(path)
+        resp, data, _ = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset fetch",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
             return {
                 "status_code": resp.status,
                 "asset_info": None,
                 "flowerhub_status": None,
-                "error": msg,
-            }
-        # Validate flowerHubStatus
-        fhs = data.get("flowerHubStatus")
-        if not isinstance(fhs, dict):
-            msg = "Asset response missing flowerHubStatus"
-            _LOGGER.error(msg)
-            if raise_on_error:
-                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
-            return {
-                "status_code": resp.status,
-                "asset_info": data,
-                "flowerhub_status": None,
-                "error": msg,
-            }
-        status_val = fhs.get("status")
-        if status_val is None or (
-            isinstance(status_val, str) and status_val.strip() == ""
-        ):
-            msg = "flowerHubStatus.status is required and must be non-empty"
-            _LOGGER.error(msg)
-            if raise_on_error:
-                raise ApiError(msg, status_code=resp.status, url=path, payload=data)
-            return {
-                "status_code": resp.status,
-                "asset_info": data,
-                "flowerhub_status": None,
-                "error": msg,
+                "error": err,
             }
 
-        # Populate properties only after validation passed
-        self.asset_info = data
-        now = datetime.datetime.now(datetime.timezone.utc)
-        self.flowerhub_status = FlowerHubStatus(
-            status=str(status_val), message=fhs.get("message"), updated_at=now
+        fh_status, err = validate_flowerhub_status(
+            data_dict.get("flowerHubStatus"),
+            status_code=resp.status,
+            url=url,
+            payload=data_dict,
+            raise_on_error=raise_on_error,
         )
+        if fh_status is None:
+            return {
+                "status_code": resp.status,
+                "asset_info": data_dict,
+                "flowerhub_status": None,
+                "error": err,
+            }
+
+        self.asset_info = data_dict
+        self.flowerhub_status = fh_status
         _LOGGER.debug(
             "FlowerHub status updated: %s - %s",
             self.flowerhub_status.status,
@@ -729,16 +501,31 @@ class AsyncFlowerhubClient:
         }
 
     async def async_fetch_system_notification(
-        self, slug: str = "active-flower", *, raise_on_error: bool = True
+        self,
+        slug: str = "active-flower",
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Fetch a system-notification payload by slug (e.g. ``active-flower`` or ``active-zavann``)."""
 
         path = f"/system-notification/{slug}"
-        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
         return {"status_code": resp.status, "json": data, "text": text}
 
     async def async_fetch_electricity_agreement(
-        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> AgreementResult:
         """Fetch electricity agreement details for the given asset owner."""
 
@@ -749,12 +536,17 @@ class AsyncFlowerhubClient:
                 "asset_owner_id is required for electricity agreement fetch"
             )
         path = f"/asset-owner/{aoid}/electricity-agreement"
-        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
 
         if resp.status == 200:
             _LOGGER.debug("Successfully fetched electricity agreement")
 
-        agreement = self._parse_electricity_agreement(data)
+        agreement = parse_electricity_agreement(data)
         if agreement is None and raise_on_error:
             msg = "Unexpected response type for electricity agreement (expected dict)"
             _LOGGER.error(msg)
@@ -768,7 +560,12 @@ class AsyncFlowerhubClient:
         }
 
     async def async_fetch_invoices(
-        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> InvoicesResult:
         """Fetch invoice information for the given asset owner."""
 
@@ -777,17 +574,34 @@ class AsyncFlowerhubClient:
             _LOGGER.error("Cannot fetch invoices: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for invoice fetch")
         path = f"/asset-owner/{aoid}/invoice"
-        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
 
         if resp.status == 200:
             invoice_count = len(data) if isinstance(data, list) else 0
             _LOGGER.debug("Successfully fetched %s invoices", invoice_count)
 
-        invoices = self._parse_invoices(data)
-        if invoices is None and raise_on_error:
-            msg = "Unexpected response type for invoices (expected list)"
-            _LOGGER.error(msg)
-            raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+        data_list, err = ensure_list(
+            data,
+            context="invoices",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        invoices = parse_invoices(data_list) if data_list is not None else None
+        if invoices is None and err:
+            return {
+                "status_code": resp.status,
+                "json": data,
+                "text": text,
+                "invoices": None,
+                "error": err,
+            }
         return {
             "status_code": resp.status,
             "json": data,
@@ -797,7 +611,12 @@ class AsyncFlowerhubClient:
         }
 
     async def async_fetch_consumption(
-        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> ConsumptionResult:
         """Fetch consumption data for the given asset owner."""
 
@@ -806,17 +625,34 @@ class AsyncFlowerhubClient:
             _LOGGER.error("Cannot fetch consumption: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for consumption fetch")
         path = f"/asset-owner/{aoid}/consumption"
-        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
 
         if resp.status == 200:
             record_count = len(data) if isinstance(data, list) else 0
             _LOGGER.debug("Successfully fetched %s consumption records", record_count)
 
-        consumption = self._parse_consumption(data)
-        if consumption is None and raise_on_error:
-            msg = "Unexpected response type for consumption (expected list)"
-            _LOGGER.error(msg)
-            raise ApiError(msg, status_code=resp.status, url=path, payload=data)
+        data_list, err = ensure_list(
+            data,
+            context="consumption",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        consumption = parse_consumption(data_list) if data_list is not None else None
+        if consumption is None and err:
+            return {
+                "status_code": resp.status,
+                "json": data,
+                "text": text,
+                "consumption": None,
+                "error": err,
+            }
         return {
             "status_code": resp.status,
             "json": data,
@@ -826,7 +662,12 @@ class AsyncFlowerhubClient:
         }
 
     async def async_readout_sequence(
-        self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
     ) -> Dict[str, Any]:
         ao = asset_owner_id or self.asset_owner_id
         if not ao:
@@ -838,7 +679,10 @@ class AsyncFlowerhubClient:
         asset_resp = None
         if self.asset_id:
             asset_resp = await self.async_fetch_asset(
-                self.asset_id, raise_on_error=raise_on_error
+                self.asset_id,
+                raise_on_error=raise_on_error,
+                retry_5xx_attempts=retry_5xx_attempts,
+                timeout_total=timeout_total,
             )
             _LOGGER.debug("Readout sequence completed successfully")
         else:
@@ -898,14 +742,17 @@ class AsyncFlowerhubClient:
                         "Failed to put result in queue: %s", err, exc_info=True
                     )
 
+        async def _fetch_once():
+            if not self.asset_id:
+                await self.async_fetch_asset_id(self.asset_owner_id)
+            if self.asset_id:
+                await self.async_fetch_asset(self.asset_id)
+                await _handle_update()
+
         async def _loop():
             if run_immediately:
                 try:
-                    if not self.asset_id:
-                        await self.async_fetch_asset_id(self.asset_owner_id)
-                    if self.asset_id:
-                        await self.async_fetch_asset(self.asset_id)
-                        await _handle_update()
+                    await _fetch_once()
                 except Exception as err:
                     _LOGGER.error(
                         "Initial fetch failed in periodic start: %s", err, exc_info=True
@@ -914,11 +761,7 @@ class AsyncFlowerhubClient:
                 while True:
                     await asyncio.sleep(float(interval_seconds))
                     try:
-                        if not self.asset_id:
-                            await self.async_fetch_asset_id(self.asset_owner_id)
-                        if self.asset_id:
-                            await self.async_fetch_asset(self.asset_id)
-                            await _handle_update()
+                        await _fetch_once()
                     except Exception as err:
                         _LOGGER.error(
                             "Periodic fetch_asset() failed: %s", err, exc_info=True
@@ -941,3 +784,20 @@ class AsyncFlowerhubClient:
     def is_asset_fetch_running(self) -> bool:
         t = getattr(self, "_asset_fetch_task", None)
         return bool(t and not t.done())
+
+    # ----- Lifecycle & concurrency helpers -----
+    async def close(self) -> None:
+        """Cancel background tasks. Does not close injected sessions."""
+        self.stop_periodic_asset_fetch()
+
+    async def __aenter__(self) -> "AsyncFlowerhubClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
+
+    def set_max_concurrency(self, max_requests: int) -> None:
+        if max_requests and max_requests > 0:
+            self._semaphore = asyncio.Semaphore(int(max_requests))
+        else:
+            self._semaphore = None

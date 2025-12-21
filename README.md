@@ -131,14 +131,77 @@ Or create `examples/secrets.json`:
 ## API Documentation
 
 For detailed information about the Flowerhub portal API endpoints used by this Python client library, such as request/response formats, and data structures, see [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md).
+``
+`FlowerHubStatus` fields:
+- `status` — textual status (e.g., "Connected")
+- `message` — human-friendly message
+- `updated_at` — UTC datetime when the status was recorded
+- `age_seconds()` — helper returning the age in seconds (float) or `None` if timestamp missing
+
+````
+
+Home Assistant: DataUpdateCoordinator Example
+---------------------------------------------
+This client is designed to integrate cleanly with Home Assistant. Below is a minimal `DataUpdateCoordinator` example using `AsyncFlowerhubClient`.
+
+```py
+from __future__ import annotations
+
+from datetime import timedelta
+import aiohttp
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from flowerhub_portal_api_client import AsyncFlowerhubClient, AuthenticationError, ApiError
 
 
-Periodic status refresh (background polling) 💡
-------------------------------------------
-The client provides a convenience helper to periodically refresh the asset's
-`flowerHubStatus` in a background asyncio Task and deliver updates to your code:
+class FlowerhubCoordinator(DataUpdateCoordinator):
+    def __init__(self, hass: HomeAssistant, username: str, password: str) -> None:
+        super().__init__(
+            hass,
+            hass.logger,
+            name="flowerhub",
+            update_interval=timedelta(minutes=1),  # adjust as needed
+        )
+        self._username = username
+        self._password = password
+        self._client: AsyncFlowerhubClient | None = None
 
-- `start_periodic_asset_fetch(interval_seconds=60, run_immediately=False, on_update=None, result_queue=None)`
+    async def _async_setup_client(self) -> AsyncFlowerhubClient:
+        if self._client is None:
+            # Reuse HA's shared aiohttp session
+            session = aiohttp.ClientSession()
+            self._client = AsyncFlowerhubClient(session=session, on_auth_failed=self._on_auth_failed)
+            await self._client.async_login(self._username, self._password)
+        return self._client
+
+    def _on_auth_failed(self) -> None:
+        # Trigger reauth flow or flag; coordinator will error next update
+        self.logger.warning("Flowerhub auth failed; re-login required")
+
+    async def _async_update_data(self):
+        client = await self._async_setup_client()
+        try:
+            # Perform the full readout; you can also call specific endpoints
+            result = await client.async_readout_sequence(timeout_total=10.0)
+            return {
+                "asset_owner_id": result.get("asset_owner_id"),
+                "asset_id": result.get("asset_id"),
+                "flowerhub_status": client.flowerhub_status,
+                "asset_info": client.asset_info,
+            }
+        except AuthenticationError as err:
+            raise UpdateFailed(f"Authentication error: {err}") from err
+        except ApiError as err:
+            raise UpdateFailed(f"API error: {err}") from err
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected error: {err}") from err
+```
+
+Notes:
+- Per-call timeout can be set via `timeout_total`; default is 10s.
+- Retries on `5xx` and `429` are supported; tune via `retry_5xx_attempts`.
+- Use `client.start_periodic_asset_fetch(...)` for lightweight background updates when a coordinator isn't needed.
   - `on_update` (callable) will be invoked with a `FlowerHubStatus` object on every successful refresh (called in the event loop).
   - `result_queue` (an `asyncio.Queue`) will receive `FlowerHubStatus` objects via non-blocking `put_nowait`.
   - `interval_seconds` must be >= 5 (default 60).
