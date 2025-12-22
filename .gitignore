@@ -5,4 +5,6 @@ __pycache__
 tests/__pycache__
 examples/__pycache__
 
-flowerhub_client.egg-info/PKG-INFO
+flowerhub_client.egg-info
+.vscode
+*.egg-info/*
