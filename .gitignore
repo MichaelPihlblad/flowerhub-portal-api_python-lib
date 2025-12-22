@@ -10,3 +10,5 @@ flowerhub_client.egg-info
 *.egg-info/*
 
 .coverage
+
+site

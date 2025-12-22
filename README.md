@@ -17,6 +17,22 @@ A lightweight, Python client for the [Flowerhub portal](https://portal.flowerhub
 - Client provides asset, consumption, and invoice data from API endpoints
 - Designed for Home Assistant integrations and similar use cases
 
+## Documentation
+
+- **Online**: [Library documentation](https://michaelpihlblad.github.io/flowerhub-portal-api_python-lib/) — hosted on GitHub Pages, auto-published on push to `main`.
+- **Local preview**:
+
+```bash
+pip install -r dev-requirements.txt
+mkdocs serve
+```
+
+To build the static site locally:
+
+```bash
+mkdocs build --strict
+```
+
 ## Installation
 
 ### From PyPI

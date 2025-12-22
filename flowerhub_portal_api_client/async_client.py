@@ -52,6 +52,16 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class AsyncFlowerhubClient:
+    """Async client for Flowerhub Portal API.
+
+    Provides Home Assistant–friendly async methods with built-in token refresh,
+    retries, timeouts, and optional callbacks for authentication and API errors.
+
+    Configure per-call behavior using `raise_on_error`, `retry_5xx_attempts`, and
+    `timeout_total`. Results are plain dicts conforming to `TypedDict` contracts
+    defined in `flowerhub_portal_api_client.types`.
+    """
+
     def __init__(
         self,
         base_url: str = "https://api.portal.flowerhub.se",
@@ -363,9 +373,19 @@ class AsyncFlowerhubClient:
     async def async_login(
         self, username: str, password: str, *, raise_on_error: bool = True
     ) -> Dict[str, Any]:
-        """Login and initialize `asset_owner_id` when available.
+        """Authenticate and initialize `asset_owner_id` when available.
 
-        Returns a dict with `status_code` and parsed `json` payload.
+        Args:
+            username: Account username (email).
+            password: Account password.
+            raise_on_error: If True, raises `ApiError` on HTTP errors.
+
+        Returns:
+            Dict[str, Any]: `{"status_code": int, "json": Any}` from login.
+
+        Raises:
+            RuntimeError: If no aiohttp `ClientSession` is configured.
+            ApiError: When `raise_on_error=True` and an HTTP error occurs.
         """
         if self._session is None:
             _LOGGER.error("Login failed: aiohttp ClientSession is required")
@@ -405,10 +425,18 @@ class AsyncFlowerhubClient:
     async def async_fetch_asset_id(
         self, asset_owner_id: Optional[int] = None, *, raise_on_error: bool = True
     ) -> AssetIdResult:
-        """Fetch the asset ID for an asset owner.
+        """Fetch asset ID for an asset owner.
 
-        Requires `asset_owner_id` either passed or preset on the client.
-        Returns `AssetIdResult` with `asset_id` or an `error` string.
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on validation/HTTP errors.
+
+        Returns:
+            AssetIdResult: `{status_code, asset_id, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: When parsing/validation fails and `raise_on_error=True`.
         """
         aoid = asset_owner_id or self.asset_owner_id
         if not aoid:
@@ -463,8 +491,18 @@ class AsyncFlowerhubClient:
     ) -> AssetFetchResult:
         """Fetch asset information and update `flowerhub_status`.
 
-        Accepts per-call `retry_5xx_attempts` and `timeout_total` overrides.
-        Returns `AssetFetchResult` with `asset_info` and `flowerhub_status`.
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on HTTP/validation errors.
+            retry_5xx_attempts: Optional number of retries for 5xx; `None` disables.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            AssetFetchResult: `{status_code, asset_info, flowerhub_status, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: On invalid response, missing `flowerHubStatus`, or HTTP errors when `raise_on_error=True`.
         """
         aid = asset_id or self.asset_id
         if not aid:
@@ -533,8 +571,17 @@ class AsyncFlowerhubClient:
     ) -> Dict[str, Any]:
         """Fetch a system-notification payload by slug.
 
-        Useful for banners like `active-flower` or `active-zavann`.
-        Returns dict with `status_code`, `json`, and `text`.
+        Args:
+            slug: Notification identifier (e.g., "active-flower").
+            raise_on_error: If True, raises `ApiError` on HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            Dict[str, Any]: `{status_code, json, text}`.
+
+        Raises:
+            ApiError: On HTTP errors when `raise_on_error=True`.
         """
 
         path = f"/system-notification/{slug}"
@@ -556,7 +603,18 @@ class AsyncFlowerhubClient:
     ) -> AgreementResult:
         """Fetch electricity agreement details for the given asset owner.
 
-        Returns `AgreementResult` with the parsed agreement or an error.
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            AgreementResult: `{status_code, agreement, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
         """
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -599,7 +657,18 @@ class AsyncFlowerhubClient:
     ) -> InvoicesResult:
         """Fetch invoice information for the given asset owner.
 
-        Returns `InvoicesResult` with parsed invoices list or an error.
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            InvoicesResult: `{status_code, invoices, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
         """
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -653,7 +722,18 @@ class AsyncFlowerhubClient:
     ) -> ConsumptionResult:
         """Fetch consumption data for the given asset owner.
 
-        Returns `ConsumptionResult` with parsed records or an error.
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            ConsumptionResult: `{status_code, consumption, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
         """
 
         aoid = asset_owner_id or self.asset_owner_id
@@ -705,9 +785,20 @@ class AsyncFlowerhubClient:
         retry_5xx_attempts: Optional[int] = None,
         timeout_total: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Run a readout sequence: discover asset ID then fetch asset.
+        """Run readout: discover asset ID then fetch asset.
 
-        Returns a dict with `asset_owner_id`, `asset_id`, and responses.
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on HTTP/validation errors.
+            retry_5xx_attempts: Optional number of retries for 5xx during fetch.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            Dict[str, Any]: `{asset_owner_id, asset_id, with_asset_resp, asset_resp}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: On HTTP/validation errors when `raise_on_error=True`.
         """
         ao = asset_owner_id or self.asset_owner_id
         if not ao:
@@ -745,9 +836,20 @@ class AsyncFlowerhubClient:
         on_update: Optional[Callable[[FlowerHubStatus], None]] = None,
         result_queue: Optional["asyncio.Queue"] = None,
     ) -> asyncio.Task:
-        """Start a background Task that periodically fetches the asset.
+        """Start a background task that periodically fetches the asset.
 
-        Returns the created Task. Call `stop_periodic_asset_fetch()` to cancel.
+        Args:
+            interval_seconds: Fetch interval (minimum 5 seconds).
+            run_immediately: If True, perform one fetch before scheduling.
+            on_update: Optional callback invoked with `FlowerHubStatus` after fetch.
+            result_queue: Optional queue where `FlowerHubStatus` is pushed.
+
+        Returns:
+            asyncio.Task: The created periodic task.
+
+        Raises:
+            ValueError: If interval is below 5 seconds.
+            RuntimeError: If a periodic fetch is already running.
         """
         if interval_seconds < 5.0:
             _LOGGER.error(
@@ -843,7 +945,8 @@ class AsyncFlowerhubClient:
     def set_max_concurrency(self, max_requests: int) -> None:
         """Set a simple semaphore rate limiter for concurrent requests.
 
-        Pass 0/None to disable.
+        Args:
+            max_requests: Maximum concurrent in-flight HTTP requests. Pass 0/None to disable.
         """
         if max_requests and max_requests > 0:
             self._semaphore = asyncio.Semaphore(int(max_requests))

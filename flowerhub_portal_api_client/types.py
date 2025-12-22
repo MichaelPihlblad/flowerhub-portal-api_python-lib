@@ -153,12 +153,29 @@ class ConsumptionRecord:
 
 
 class AssetIdResult(TypedDict):
+    """Result for asset ID discovery.
+
+    Fields:
+    - status_code: HTTP status code
+    - asset_id: Parsed integer asset id or None
+    - error: Error message when not raising, else None
+    """
+
     status_code: int
     asset_id: Optional[int]
     error: Optional[str]
 
 
 class AssetFetchResult(TypedDict):
+    """Result for asset fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - asset_info: Raw asset payload dict or None
+    - flowerhub_status: Parsed `FlowerHubStatus` or None
+    - error: Error message when not raising, else None
+    """
+
     status_code: int
     asset_info: Optional[Dict[str, Any]]
     flowerhub_status: Optional[FlowerHubStatus]
@@ -166,6 +183,16 @@ class AssetFetchResult(TypedDict):
 
 
 class AgreementResult(TypedDict):
+    """Result for electricity agreement fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - agreement: Parsed `ElectricityAgreement` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
     status_code: int
     agreement: Optional[ElectricityAgreement]
     json: Any
@@ -174,6 +201,16 @@ class AgreementResult(TypedDict):
 
 
 class InvoicesResult(TypedDict):
+    """Result for invoices fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - invoices: List of parsed `Invoice` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
     status_code: int
     invoices: Optional[List[Invoice]]
     json: Any
@@ -182,6 +219,16 @@ class InvoicesResult(TypedDict):
 
 
 class ConsumptionResult(TypedDict):
+    """Result for consumption fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - consumption: List of parsed `ConsumptionRecord` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
     status_code: int
     consumption: Optional[List[ConsumptionRecord]]
     json: Any
