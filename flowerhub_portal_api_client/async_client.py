@@ -156,7 +156,8 @@ class AsyncFlowerhubClient:
     ) -> bool:
         return (
             status >= 500
-            and retry_5xx_attempts not in (None, 0)
+            and retry_5xx_attempts is not None
+            and retry_5xx_attempts != 0
             and attempts < retry_5xx_attempts
         )
 

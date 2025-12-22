@@ -13,6 +13,7 @@ plugins:
 nav:
   - Overview: index.md
   - Usage: usage.md
-  - API Reference:
-      - Async Client: api/async_client.md
-      - Types: api/types.md
+  - REST API reference: REST_API_specification.md
+  - Library interface reference:
+      - Async Client: interfaces/async_client.md
+      - Types: interfaces/types.md

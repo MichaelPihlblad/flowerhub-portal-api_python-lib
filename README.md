@@ -17,21 +17,6 @@ A lightweight, Python client for the [Flowerhub portal](https://portal.flowerhub
 - Client provides asset, consumption, and invoice data from API endpoints
 - Designed for Home Assistant integrations and similar use cases
 
-## Documentation
-
-- **Online**: [Library documentation](https://michaelpihlblad.github.io/flowerhub-portal-api_python-lib/) — hosted on GitHub Pages, auto-published on push to `main`.
-- **Local preview**:
-
-```bash
-pip install -r dev-requirements.txt
-mkdocs serve
-```
-
-To build the static site locally:
-
-```bash
-mkdocs build --strict
-```
 
 ## Installation
 
@@ -73,6 +58,42 @@ async def main():
 asyncio.run(main())
 ```
 
+## Documentation
+
+- **Online**: [Library documentation](https://michaelpihlblad.github.io/flowerhub-portal-api_python-lib/) — hosted on GitHub Pages, auto-published on push to `main`.
+- **Local preview**:
+
+```bash
+pip install -r dev-requirements.txt
+mkdocs serve
+```
+
+To build the static site locally:
+
+```bash
+mkdocs build --strict
+```
+
+## Development Setup
+
+For contributors and local development:
+
+```bash
+# Clone and setup environment
+git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
+cd flowerhub-portal-api_python-lib
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r dev-requirements.txt
+
+  - `result_queue` (an `asyncio.Queue`) will receive `FlowerHubStatus` objects via non-blocking `put_nowait`.
+  - `interval_seconds` must be >= 5 (default 60).
+```
+
+
 ## Usage Guide
 
 - **Per-call options**: All public fetch methods accept `raise_on_error` (default `True`), `retry_5xx_attempts` (controls 5xx/429 retries; `None` or `0` disables), and `timeout_total` (per-call `aiohttp.ClientTimeout` override; default is 10s, `0`/`None` disables timeout).
@@ -83,15 +104,17 @@ asyncio.run(main())
 
 ### Public Methods (async)
 
-- `async_login(username, password, raise_on_error=True)` → sets `asset_owner_id`; returns `{status_code, json}`.
-- `async_fetch_asset_id(asset_owner_id=None, ..., raise_on_error=True, retry_5xx_attempts=None, timeout_total=None)` → `AssetIdResult` with `asset_id`.
-- `async_fetch_asset(asset_id=None, ..., raise_on_error=True, retry_5xx_attempts=None, timeout_total=None)` → `AssetFetchResult` with `asset_info` and `flowerhub_status`.
-- `async_fetch_system_notification(slug="active-flower", ..., retry_5xx_attempts=None, timeout_total=None)` → `{status_code, json, text}`.
-- `async_fetch_electricity_agreement(asset_owner_id=None, ..., retry_5xx_attempts=None, timeout_total=None)` → `AgreementResult` with parsed agreement.
-- `async_fetch_invoices(asset_owner_id=None, ..., retry_5xx_attempts=None, timeout_total=None)` → `InvoicesResult` with parsed invoices.
-- `async_fetch_consumption(asset_owner_id=None, ..., retry_5xx_attempts=None, timeout_total=None)` → `ConsumptionResult` with parsed records.
-- `async_readout_sequence(asset_owner_id=None, ..., retry_5xx_attempts=None, timeout_total=None)` → runs `asset_id` discovery then asset fetch; returns a dict with both responses.
-- `start_periodic_asset_fetch(interval_seconds=60, run_immediately=False, on_update=None, result_queue=None)` → starts background polling; stop via `stop_periodic_asset_fetch()`; check via `is_asset_fetch_running()`.
+- `async_login(..)`
+- `async_fetch_asset_id(...)`
+- `async_fetch_asset(...)`
+- `async_readout_sequence(...)` - Fetches assetID then asset info
+- `async_fetch_electricity_agreement(...)`
+- `async_fetch_invoices(...)`
+- `async_fetch_consumption(...)`
+- `async_fetch_system_notification(...)` - Unclear purpose, provides some status for flower/zavann systems, possibly for the user. Flower is electrical energy provider, Zavann seems to be the billing system.
+- `start_periodic_asset_fetch(...)`
+- `stop_periodic_asset_fetch(...)`
+- `is_asset_fetch_running(...)`
 
 ### Data Models and Types
 
@@ -145,56 +168,3 @@ client = AsyncFlowerhubClient(
 ```
 
 See `examples/auth_error_handling.py` for complete examples including Home Assistant patterns.
-
-## Development Setup
-
-For contributors and local development:
-
-```bash
-# Clone and setup environment
-git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
-cd flowerhub-portal-api_python-lib
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -r dev-requirements.txt
-
-  - `result_queue` (an `asyncio.Queue`) will receive `FlowerHubStatus` objects via non-blocking `put_nowait`.
-  - `interval_seconds` must be >= 5 (default 60).
-
-Example (simple async usage):
-
-```py
-import asyncio
-import aiohttp
-from flowerhub_portal_api_client import AsyncFlowerhubClient
-
-async def main():
-	async with aiohttp.ClientSession() as session:
-		client = AsyncFlowerhubClient(base_url="https://api.portal.flowerhub.se", session=session)
-		await client.async_login("user@example.com", "password")
-
-		q = asyncio.Queue()
-		client.start_periodic_asset_fetch(60, run_immediately=True, result_queue=q)
-		try:
-			while True:
-				fhs = await q.get()
-				print("Queued update:", fhs.status, fhs.message, f"age={fhs.age_seconds():.1f}s")
-		finally:
-			client.stop_periodic_asset_fetch()
-
-asyncio.run(main())
-```
-
-If you prefer a callback approach, pass `on_update` which will be called with
-a `FlowerHubStatus` instance each time the status is refreshed. Avoid blocking
-operations in the callback because it's executed in the event loop.
-
-```
-`FlowerHubStatus` fields:
-- `status` — textual status (e.g., "Connected")
-- `message` — human-friendly message
-- `updated_at` — UTC datetime when the status was recorded
-- `age_seconds()` — helper returning the age in seconds (float) or `None` if timestamp missing
