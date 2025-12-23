@@ -189,35 +189,37 @@ class AsyncFlowerhubClient:
         self, sess: "aiohttp.ClientSession", headers: Dict[str, str]
     ) -> bool:
         try:
-            rref_cm: Any = sess.request(
+            refresh_cm: Any = sess.request(
                 "GET",
                 f"{self.base_url.rstrip('/')}/auth/refresh-token",
                 headers=headers,
             )
-            if asyncio.iscoroutine(rref_cm):
-                rref_cm = await rref_cm
-            async with rref_cm as rref:
-                if rref.status == 200:
+            if asyncio.iscoroutine(refresh_cm):
+                refresh_cm = await refresh_cm
+            async with refresh_cm as refresh_response:
+                if refresh_response.status == 200:
                     _LOGGER.info("Token refresh successful")
                 else:
-                    _LOGGER.warning("Token refresh failed with status %s", rref.status)
+                    _LOGGER.warning(
+                        "Token refresh failed with status %s", refresh_response.status
+                    )
                 try:
-                    rref_json = await rref.json()
+                    refresh_json = await refresh_response.json()
                 except Exception as err:  # pragma: no cover - non-JSON refresh
                     _LOGGER.debug("Refresh response is not JSON: %s", err)
-                    rref_json = None
+                    refresh_json = None
                 try:
-                    if isinstance(rref_json, dict):
-                        u = rref_json.get("user")
-                        if isinstance(u, dict) and "assetOwnerId" in u:
-                            self.asset_owner_id = int(u["assetOwnerId"])
+                    if isinstance(refresh_json, dict):
+                        user_dict = refresh_json.get("user")
+                        if isinstance(user_dict, dict) and "assetOwnerId" in user_dict:
+                            self.asset_owner_id = int(user_dict["assetOwnerId"])
                             _LOGGER.debug(
                                 "Updated asset_owner_id to %s from refresh",
                                 self.asset_owner_id,
                             )
                 except (ValueError, TypeError, KeyError) as err:  # pragma: no cover
                     _LOGGER.debug("Could not extract assetOwnerId: %s", err)
-                return rref.status == 200
+                return refresh_response.status == 200
         except Exception as err:  # pragma: no cover - network errors
             _LOGGER.error("Token refresh request failed: %s", err, exc_info=True)
             return False
@@ -234,12 +236,12 @@ class AsyncFlowerhubClient:
         path: str,
     ) -> tuple[Any, Any, str]:
         await self._attempt_refresh(sess, headers)
-        cm2: Any = sess.request(method, url, headers=headers, **kwargs)
-        if asyncio.iscoroutine(cm2):
-            cm2 = await cm2
-        async with cm2 as resp2:
-            data2, text2 = await self._read_response(resp2)
-            if resp2.status == 401:
+        retry_cm: Any = sess.request(method, url, headers=headers, **kwargs)
+        if asyncio.iscoroutine(retry_cm):
+            retry_cm = await retry_cm
+        async with retry_cm as retry_response:
+            retry_data, retry_text = await self._read_response(retry_response)
+            if retry_response.status == 401:
                 _LOGGER.error(
                     "Request to %s failed after token refresh: re-authentication required",
                     path,
@@ -256,9 +258,11 @@ class AsyncFlowerhubClient:
                 raise AuthenticationError(
                     "Authentication token expired and refresh failed. Please login again."
                 )
-            self._log_status(path, resp2.status)
-            self._maybe_raise_http_error(resp2, data2, url, raise_on_error)
-            return resp2, data2, text2
+            self._log_status(path, retry_response.status)
+            self._maybe_raise_http_error(
+                retry_response, retry_data, url, raise_on_error
+            )
+            return retry_response, retry_data, retry_text
 
     async def _send_request(
         self,
@@ -270,12 +274,12 @@ class AsyncFlowerhubClient:
         kwargs: Dict[str, Any],
     ) -> tuple[Any, Any, str]:
         async def _do():
-            cm: Any = sess.request(method, url, headers=headers, **kwargs)
-            if asyncio.iscoroutine(cm):
-                cm = await cm
-            async with cm as resp:
-                data, text = await self._read_response(resp)
-                return resp, data, text
+            request_cm: Any = sess.request(method, url, headers=headers, **kwargs)
+            if asyncio.iscoroutine(request_cm):
+                request_cm = await request_cm
+            async with request_cm as response:
+                data, text = await self._read_response(response)
+                return response, data, text
 
         if self._semaphore is not None:
             async with self._semaphore:
@@ -411,9 +415,9 @@ class AsyncFlowerhubClient:
         # try to set asset_owner_id from json
         try:
             if data and isinstance(data, dict):
-                u = data.get("user")
-                if isinstance(u, dict) and "assetOwnerId" in u:
-                    self.asset_owner_id = int(u["assetOwnerId"])
+                user_dict = data.get("user")
+                if isinstance(user_dict, dict) and "assetOwnerId" in user_dict:
+                    self.asset_owner_id = int(user_dict["assetOwnerId"])
                     _LOGGER.debug(
                         "Set asset_owner_id to %s from login response",
                         self.asset_owner_id,
@@ -439,11 +443,11 @@ class AsyncFlowerhubClient:
             ValueError: If asset owner id is not provided.
             ApiError: When parsing/validation fails and `raise_on_error=True`.
         """
-        aoid = asset_owner_id or self.asset_owner_id
-        if not aoid:
+        owner_id = asset_owner_id or self.asset_owner_id
+        if not owner_id:
             _LOGGER.error("Cannot fetch asset ID: asset_owner_id not set")
             raise ValueError("asset_owner_id is required for asset id fetch")
-        path = f"/asset-owner/{aoid}/withAssetId"
+        path = f"/asset-owner/{owner_id}/withAssetId"
         url = self._build_url(path)
         resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
 
@@ -457,18 +461,18 @@ class AsyncFlowerhubClient:
         if data_dict is None:
             return {"status_code": resp.status, "asset_id": None, "error": err}
 
-        asset_val, err = require_field(
+        asset_id_value, err = require_field(
             data_dict,
             "assetId",
             status_code=resp.status,
             url=url,
             raise_on_error=raise_on_error,
         )
-        if asset_val is None:
+        if asset_id_value is None:
             return {"status_code": resp.status, "asset_id": None, "error": err}
 
         asset_id_int, err = parse_asset_id_value(
-            asset_val,
+            asset_id_value,
             status_code=resp.status,
             url=url,
             payload=data_dict,
