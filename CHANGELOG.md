@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.4.0] - 2025-12-23
+
+### Changed
+- Improved code readability, renamed internal variables
+- Excluding test files from linting to focus on library code quality
+- Documentation revised
+### Fixed
+- Mypy type error in `_should_retry_5xx` method: improved handling of `Optional[int]` comparison by explicitly checking for None
+
+### CI Changes
+- CI/CD improvements:
+  - Updated GitHub Actions workflows to exclude tests from linting
+  - Proper dependency installation in pre-commit workflow
+
 ## [0.4.0-beta] - 2025-12-22
 
 ### Breaking
