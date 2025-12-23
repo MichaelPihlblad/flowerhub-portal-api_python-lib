@@ -168,3 +168,11 @@ client = AsyncFlowerhubClient(
 ```
 
 See `examples/auth_error_handling.py` for complete examples including Home Assistant patterns.
+
+## Security
+
+### PyPI Package Attestations
+
+All releases published to PyPI include cryptographic attestations that provide verifiable proof of provenance. These attestations allow you to verify that packages were built by the official GitHub Actions workflow and haven't been tampered with.
+
+For more information about release attestations and how to verify them, see [RELEASE_ATTESTATION.md](RELEASE_ATTESTATION.md).
