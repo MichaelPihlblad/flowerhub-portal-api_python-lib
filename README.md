@@ -17,7 +17,14 @@ A lightweight, Python client for the [Flowerhub portal](https://portal.flowerhub
 - Client provides asset, consumption, and invoice data from API endpoints
 - Designed for Home Assistant integrations and similar use cases
 
+
 ## Installation
+
+### From PyPI
+
+```bash
+pip install flowerhub-portal-api-client
+```
 
 ### From Source
 
@@ -50,6 +57,82 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Documentation
+
+- **Online**: [Library documentation](https://michaelpihlblad.github.io/flowerhub-portal-api_python-lib/) — hosted on GitHub Pages, auto-published on push to `main`.
+- **Local preview**:
+
+```bash
+pip install -r dev-requirements.txt
+mkdocs serve
+```
+
+To build the static site locally:
+
+```bash
+mkdocs build --strict
+```
+
+## Development Setup
+
+For contributors and local development:
+
+```bash
+# Clone and setup environment
+git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
+cd flowerhub-portal-api_python-lib
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r dev-requirements.txt
+
+  - `result_queue` (an `asyncio.Queue`) will receive `FlowerHubStatus` objects via non-blocking `put_nowait`.
+  - `interval_seconds` must be >= 5 (default 60).
+```
+
+
+## Usage Guide
+
+- **Per-call options**: All public fetch methods accept `raise_on_error` (default `True`), `retry_5xx_attempts` (controls 5xx/429 retries; `None` or `0` disables), and `timeout_total` (per-call `aiohttp.ClientTimeout` override; default is 10s, `0`/`None` disables timeout).
+- **Error handling**: `AuthenticationError` is raised after a failed refresh retry on `401`; `ApiError` is raised for other HTTP errors or validation issues when `raise_on_error=True`. Use `on_auth_failed` and `on_api_error` callbacks for integration-specific handling.
+- **Lifecycle**: Prefer `async with AsyncFlowerhubClient(...)` or call `close()` to stop background tasks. The client does not close an injected session.
+- **Concurrency / rate limiting**: Call `set_max_concurrency(n)` to limit in-flight requests with a semaphore; pass `0`/`None` to disable.
+- **Retry/backoff**: 5xx and 429 responses are retried with a small jitter; 429 honors `Retry-After` when provided.
+
+### Public Methods (async)
+
+- `async_login(..)`
+- `async_fetch_asset_id(...)`
+- `async_fetch_asset(...)`
+- `async_readout_sequence(...)` - Fetches assetID then asset info
+- `async_fetch_electricity_agreement(...)`
+- `async_fetch_invoices(...)`
+- `async_fetch_consumption(...)`
+- `async_fetch_system_notification(...)` - Unclear purpose, provides some status for flower/zavann systems, possibly for the user. Flower is electrical energy provider, Zavann seems to be the billing system.
+- `start_periodic_asset_fetch(...)`
+- `stop_periodic_asset_fetch(...)`
+- `is_asset_fetch_running(...)`
+
+### Data Models and Types
+
+- Exceptions: `AuthenticationError`, `ApiError`.
+- Status/model classes: `FlowerHubStatus`, `ElectricityAgreement`, `Invoice`, `ConsumptionRecord`, etc. (see `types.py`).
+- Typed results: `AssetIdResult`, `AssetFetchResult`, `AgreementResult`, `InvoicesResult`, `ConsumptionResult`.
+
+### Options, Callbacks, and Lifecycle
+
+- Callbacks: `on_auth_failed` (refresh failed + second 401), `on_api_error` (before raising ApiError when `raise_on_error=True`).
+- Concurrency: `set_max_concurrency(n)` adds a semaphore-based rate limiter; `0`/`None` disables.
+- Context manager: `async with AsyncFlowerhubClient(...)` or `close()` to stop periodic tasks; injected sessions are not closed by the client.
+
+### Modules
+
+- `exceptions.py`: `AuthenticationError`, `ApiError` (includes `status_code`, `url`, `payload`).
+- `types.py`: dataclasses and TypedDicts used by the client (`FlowerHubStatus`, `ElectricityAgreement`, `Invoice`, `ConsumptionRecord`, `AssetIdResult`, `AssetFetchResult`, etc.).
+- `parsers.py`: pure helpers to parse/validate API payloads (used by the client but can be imported directly for advanced/standalone parsing).
 
 ## Authentication Error Handling
 
@@ -85,95 +168,3 @@ client = AsyncFlowerhubClient(
 ```
 
 See `examples/auth_error_handling.py` for complete examples including Home Assistant patterns.
-
-## Development Setup
-
-For contributors and local development:
-
-```bash
-# Clone and setup environment
-git clone https://github.com/MichaelPihlblad/flowerhub-portal-api_python-lib.git
-cd flowerhub-portal-api_python-lib
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -r dev-requirements.txt
-
-# Install pre-commit hooks
-pre-commit install
-
-# Run all checks
-pre-commit run --all-files
-pytest tests --cov=flowerhub_portal_api_client
-```
-
-## Running Examples
-
-Set credentials via environment variables:
-
-```bash
-export FH_USER="you@example.com"
-export FH_PASSWORD="your_password"
-python examples/run_example.py
-```
-
-Or create `examples/secrets.json`:
-
-```json
-{
-  "username": "you@example.com",
-  "password": "your_password"
-}
-```
-
-## API Documentation
-
-For detailed information about the Flowerhub portal API endpoints used by this Python client library, such as request/response formats, and data structures, see [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md).
-
-
-Periodic status refresh (background polling) 💡
-------------------------------------------
-The client provides a convenience helper to periodically refresh the asset's
-`flowerHubStatus` in a background asyncio Task and deliver updates to your code:
-
-- `start_periodic_asset_fetch(interval_seconds=60, run_immediately=False, on_update=None, result_queue=None)`
-  - `on_update` (callable) will be invoked with a `FlowerHubStatus` object on every successful refresh (called in the event loop).
-  - `result_queue` (an `asyncio.Queue`) will receive `FlowerHubStatus` objects via non-blocking `put_nowait`.
-  - `interval_seconds` must be >= 5 (default 60).
-
-Example (simple async usage):
-
-```py
-import asyncio
-import aiohttp
-from flowerhub_portal_api_client import AsyncFlowerhubClient
-
-async def main():
-	async with aiohttp.ClientSession() as session:
-		client = AsyncFlowerhubClient(base_url="https://api.portal.flowerhub.se", session=session)
-		await client.async_login("user@example.com", "password")
-
-		q = asyncio.Queue()
-		client.start_periodic_asset_fetch(60, run_immediately=True, result_queue=q)
-		try:
-			while True:
-				fhs = await q.get()
-				print("Queued update:", fhs.status, fhs.message, f"age={fhs.age_seconds():.1f}s")
-		finally:
-			client.stop_periodic_asset_fetch()
-
-asyncio.run(main())
-```
-
-If you prefer a callback approach, pass `on_update` which will be called with
-a `FlowerHubStatus` instance each time the status is refreshed. Avoid blocking
-operations in the callback because it's executed in the event loop.
-
-```
-`FlowerHubStatus` fields:
-- `status` — textual status (e.g., "Connected")
-- `message` — human-friendly message
-- `updated_at` — UTC datetime when the status was recorded
-- `age_seconds()` — helper returning the age in seconds (float) or `None` if timestamp missing

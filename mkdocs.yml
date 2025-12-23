@@ -1,0 +1,19 @@
+site_name: Flowerhub Portal API Client
+theme:
+  name: material
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: false
+            heading_level: 2
+nav:
+  - Overview: index.md
+  - Usage: usage.md
+  - REST API reference: REST_API_specification.md
+  - Library interface reference:
+      - Async Client: interfaces/async_client.md
+      - Types: interfaces/types.md

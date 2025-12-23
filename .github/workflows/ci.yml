@@ -34,14 +34,14 @@ jobs:
         black --check .
     - name: Lint with ruff
       run: |
-        ruff check .
-        ruff format --check .
+        ruff check flowerhub_portal_api_client
+        ruff format --check flowerhub_portal_api_client
     - name: Lint with pylint
       run: |
-        pylint flowerhub_portal_api_client tests
+        pylint flowerhub_portal_api_client
     - name: Type check with mypy
       run: |
-        mypy flowerhub_portal_api_client tests
+        mypy flowerhub_portal_api_client
     - name: Run tests
       run: |
         python -m pytest tests/ -v

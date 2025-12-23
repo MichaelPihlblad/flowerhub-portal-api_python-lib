@@ -3,12 +3,12 @@
 Exports the async client API suitable for Home Assistant integrations.
 """
 
-from .async_client import (
+from .async_client import AsyncFlowerhubClient
+from .exceptions import ApiError, AuthenticationError
+from .types import (
     AgreementState,
     Asset,
     AssetOwner,
-    AsyncFlowerhubClient,
-    AuthenticationError,
     Battery,
     ConsumptionRecord,
     ElectricityAgreement,
@@ -24,6 +24,7 @@ from .async_client import (
 __all__ = [
     "AsyncFlowerhubClient",
     "AuthenticationError",
+    "ApiError",
     "FlowerHubStatus",
     "User",
     "LoginResponse",
