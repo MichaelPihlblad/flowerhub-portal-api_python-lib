@@ -4,7 +4,7 @@ version = "0.4.0"
 description = "Lightweight Flowerhub portal client (synchronous and async)"
 readme = "README.md"
 authors = [ { name="Michael Pihlblad", email="michael.pihlblad@bahnhof.se" } ]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31",
@@ -17,6 +17,9 @@ async = ["aiohttp>=3.8"]
 [tool.ruff]
 line-length = 88
 exclude = [".venv", "__pycache__", "build", "dist", "custom_components/**"]
+
+[tool.setuptools]
+packages = ["flowerhub_portal_api_client"]
 
 [tool.black]
 line-length = 88
