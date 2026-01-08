@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # Required for trusted publishing to PyPI
 
 jobs:
   build:
@@ -14,7 +15,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -36,8 +37,35 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag_name: ${{ github.event.release.tag_name }}
 
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+
+  deploy-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/flowerhub-portal-api-client/
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    # Note: This workflow currently uses the PYPI_API_TOKEN secret for authentication.
+    # To enable PyPI Trusted Publishing (recommended):
+    # 1. Go to https://pypi.org/manage/account/publishing/
+    # 2. Add a new publisher for this repository
+    # 3. Remove the PYPI_API_TOKEN secret and the env block below
+    # 4. Trusted publishing will use OIDC authentication automatically
     - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: twine upload dist/*
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
