@@ -21,6 +21,7 @@ from .types import (
     Invoice,
     InvoiceLine,
     PostalAddress,
+    Revenue,
     SimpleDistributor,
     SimpleInstaller,
     UptimeHistoryEntry,
@@ -370,6 +371,24 @@ def parse_asset_owner_details(data: Any) -> Optional[AssetOwnerDetails]:
     )
 
 
+def parse_revenue(data: Any) -> Optional[Revenue]:
+    """Parse revenue summary for last invoice.
+
+    Returns None if input is not a dict or missing id.
+    """
+    if not isinstance(data, dict):
+        return None
+    rev_id = safe_int(data.get("id"))
+    if rev_id is None:
+        return None
+    return Revenue(
+        id=rev_id,
+        minAvailablePower=safe_float(data.get("minAvailablePower")),
+        compensation=safe_float(data.get("compensation")),
+        compensationPerKW=safe_float(data.get("compensationPerKW")),
+    )
+
+
 def parse_uptime_available_months(data: Any) -> Optional[List[UptimeMonth]]:
     """Parse a list of uptime available months.
 
@@ -453,6 +472,7 @@ __all__ = [
     "parse_asset_info",
     "parse_compensation",
     "parse_asset_owner_details",
+    "parse_revenue",
     "parse_uptime_available_months",
     "parse_uptime_history",
     "parse_uptime_pie",

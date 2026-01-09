@@ -29,7 +29,7 @@ class DummyResp:
 
 
 class DummySession:
-    def __init__(self, asset_owner_id=31, asset_id=74):
+    def __init__(self, asset_owner_id=99, asset_id=166):
         self.asset_owner_id = asset_owner_id
         self.asset_id = asset_id
         self.cookies = {}

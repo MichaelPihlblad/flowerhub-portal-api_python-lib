@@ -27,6 +27,7 @@ from .parsers import (
     parse_invoice,
     parse_invoice_line,
     parse_invoices,
+    parse_revenue,
     parse_uptime_available_months,
     parse_uptime_history,
     parse_uptime_pie,
@@ -51,6 +52,8 @@ from .types import (
     InvoiceLine,
     InvoicesResult,
     ProfileResult,
+    Revenue,
+    RevenueResult,
     UptimeAvailableMonthsResult,
     UptimeHistoryEntry,
     UptimeHistoryResult,
@@ -133,6 +136,10 @@ class AsyncFlowerhubClient:
     @classmethod
     def _parse_consumption(cls, data: Any) -> Optional[List[ConsumptionRecord]]:
         return parse_consumption(data)
+
+    @classmethod
+    def _parse_revenue(cls, data: Any) -> Optional[Revenue]:
+        return parse_revenue(data)
 
     # ----- Internal helpers -----
     def _build_url(self, path: str) -> str:
@@ -1055,6 +1062,72 @@ class AsyncFlowerhubClient:
         return {
             "status_code": resp.status,
             "slices": slices,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_revenue(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> RevenueResult:
+        """Fetch revenue summary for the last invoice of an asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            RevenueResult: `{status_code, revenue, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch revenue: asset_id not set")
+            raise ValueError("asset_id is required for revenue fetch")
+        path = f"/asset/{aid}/revenue"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="revenue",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "revenue": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        revenue: Optional[Revenue] = parse_revenue(data_dict)
+        if revenue is None and raise_on_error:
+            msg = "Unexpected response format for revenue (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "revenue": revenue,
             "json": data,
             "text": text,
             "error": None,

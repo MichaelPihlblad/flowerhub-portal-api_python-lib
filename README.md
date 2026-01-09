@@ -74,6 +74,12 @@ To build the static site locally:
 mkdocs build --strict
 ```
 
+## Configuration
+
+### Credentials
+
+**⚠️ Security Warning**: Never commit real credentials to the repository. The file `examples/secrets.json` is in `.gitignore` — use it as a template for local development only. Always use environment variables or secure credential managers in production. The pre-commit hook `detect-private-key` will block commits containing suspected private keys.
+
 ## Development Setup
 
 For contributors and local development:

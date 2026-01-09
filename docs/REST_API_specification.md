@@ -258,6 +258,20 @@ Notes: `site_id` is a numerical string; `valid_from/valid_to` and `invoiced_mont
 
 ## Asset Endpoints
 
+### GET /asset/{assetId}/revenue
+Fetch revenue summary for the asset's last invoice.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "minAvailablePower": <number>,
+  "compensation": <number>,
+  "compensationPerKW": <number>
+}
+```
+Notes: `minAvailablePower` is in kW; compensation fields are numeric and represent the last invoice’s revenue values.
+
 ### GET /asset/{assetId}
 Get detailed information about a specific asset including hardware specifications and status.
 

@@ -25,6 +25,8 @@ from .types import (
     LoginResponse,
     Manufacturer,
     PostalAddress,
+    Revenue,
+    RevenueResult,
     SimpleDistributor,
     SimpleInstaller,
     UptimeHistoryEntry,
@@ -64,4 +66,6 @@ __all__ = [
     "ConsumptionRecord",
     "Invoice",
     "InvoiceLine",
+    "Revenue",
+    "RevenueResult",
 ]

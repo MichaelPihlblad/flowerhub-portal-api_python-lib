@@ -1,4 +1,7 @@
 examples/secrets.json
+# Prevent accidental commits of modified secrets
+examples/*.secrets.json
+
 .venv
 venv
 __pycache__

@@ -277,6 +277,19 @@ class UptimePieSlice:
     value: Optional[float]
 
 
+@dataclass
+class Revenue:
+    """Revenue summary for the last invoice of an asset.
+
+    Mirrors GET /asset/{assetId}/revenue.
+    """
+
+    id: Optional[int] = None
+    minAvailablePower: Optional[float] = None
+    compensation: Optional[float] = None
+    compensationPerKW: Optional[float] = None
+
+
 class AssetIdResult(TypedDict):
     """Result for asset ID discovery.
 
@@ -415,6 +428,24 @@ class UptimePieResult(TypedDict):
     error: Optional[str]
 
 
+class RevenueResult(TypedDict):
+    """Result for asset revenue fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - revenue: Parsed `Revenue` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    revenue: Optional[Revenue]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
 class ProfileResult(TypedDict):
     """Result for asset owner profile fetch.
 
@@ -468,6 +499,7 @@ __all__ = [
     "UptimeMonth",
     "UptimeHistoryEntry",
     "UptimePieSlice",
+    "Revenue",
     "PostalAddress",
     "InstallerInfo",
     "AssetOwnerProfile",
@@ -487,4 +519,5 @@ __all__ = [
     "UptimeAvailableMonthsResult",
     "UptimeHistoryResult",
     "UptimePieResult",
+    "RevenueResult",
 ]

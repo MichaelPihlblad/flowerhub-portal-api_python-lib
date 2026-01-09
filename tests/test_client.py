@@ -1,10 +1,12 @@
 import asyncio
 
+# pylint: disable=too-many-lines
 from flowerhub_portal_api_client import ApiError, AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
 from flowerhub_portal_api_client.types import (
     AssetOwnerDetails,
     AssetOwnerProfile,
+    Revenue,
     UptimeHistoryEntry,
     UptimeMonth,
     UptimePieSlice,
@@ -846,6 +848,70 @@ def test_fetch_uptime_history_missing_asset_id():
     async def _run():
         try:
             await client.async_fetch_uptime_history()
+            assert False, "Expected ValueError due to missing asset_id"
+        except ValueError as e:
+            assert "asset_id" in str(e)
+
+    run(_run())
+
+
+def test_fetch_revenue_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 800
+    revenue_json = {
+        "id": 74,
+        "minAvailablePower": 5,
+        "compensation": 300,
+        "compensationPerKW": 60,
+    }
+    sess.add_response(
+        base + f"/asset/{asset_id}/revenue",
+        DummyResp(status=200, json_data=revenue_json, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_id = asset_id
+
+    async def _run():
+        result = await client.async_fetch_revenue()
+        assert result["status_code"] == 200
+        rev = result["revenue"]
+        assert isinstance(rev, Revenue)
+        assert rev.id == 74
+        assert rev.minAvailablePower == 5
+        assert rev.compensationPerKW == 60
+
+    run(_run())
+
+
+def test_fetch_revenue_non_dict_payload():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 801
+    sess.add_response(
+        base + f"/asset/{asset_id}/revenue",
+        DummyResp(status=200, json_data=[{"id": 1}], text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_revenue(asset_id, raise_on_error=False)
+        assert result["status_code"] == 200
+        assert result["revenue"] is None
+        assert isinstance(result["error"], str)
+
+    run(_run())
+
+
+def test_fetch_revenue_missing_asset_id():
+    client = AsyncFlowerhubClient()
+    client.asset_id = None
+
+    async def _run():
+        try:
+            await client.async_fetch_revenue()
             assert False, "Expected ValueError due to missing asset_id"
         except ValueError as e:
             assert "asset_id" in str(e)
