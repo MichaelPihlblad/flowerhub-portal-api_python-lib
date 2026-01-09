@@ -294,6 +294,47 @@ Get detailed information about a specific asset including hardware specification
 }
 ```
 
+### GET /asset-uptime/available-months/{assetId}
+List months for which uptime info is available for the asset.
+
+**Response:**
+An array of objects, one per available month:
+
+```json
+[
+  {"value": <string>, "label": <string>}
+]
+```
+Notes: `value` is in `YYYY-MM` format (e.g., "2025-03"); `label` is a human-readable month name and year (e.g., "March 2025"). Uptime measurement appears to start around March 2025, and the last element is the current month.
+
+### GET /asset-uptime/bar-chart/history/{assetId}
+List monthly uptime ratios (percent) per month for the asset.
+
+**Response:**
+An array of objects:
+
+```json
+[
+  {"date": <string>, "uptime": <number>}
+]
+```
+Notes: `date` is in `YYYY-MM` format; `uptime` is a percentage (0–100). Values may vary by month; examples include values like 100, 99, 92.
+
+### GET /asset-uptime/pie-chart/{assetId}?period=YYYY-MM
+Get uptime distribution (in seconds) for the specified period.
+
+**Response:**
+An array of objects:
+
+```json
+[
+  {"name": "uptime", "value": <number>},
+  {"name": "downtime", "value": <number>},
+  {"name": "noData", "value": <number>}
+]
+```
+Notes: `period` is required and must be in `YYYY-MM` format. `value` is measured in seconds for each category.
+
 
 ## System Notification Endpoints
 

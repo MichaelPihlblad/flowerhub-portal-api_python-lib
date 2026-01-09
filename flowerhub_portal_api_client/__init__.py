@@ -27,6 +27,10 @@ from .types import (
     PostalAddress,
     SimpleDistributor,
     SimpleInstaller,
+    UptimeHistoryEntry,
+    UptimeMonth,
+    UptimePieResult,
+    UptimePieSlice,
     User,
 )
 
@@ -51,6 +55,10 @@ __all__ = [
     "SimpleInstaller",
     "SimpleDistributor",
     "Compensation",
+    "UptimeMonth",
+    "UptimeHistoryEntry",
+    "UptimePieResult",
+    "UptimePieSlice",
     "AgreementState",
     "ElectricityAgreement",
     "ConsumptionRecord",

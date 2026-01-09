@@ -2,7 +2,13 @@ import asyncio
 
 from flowerhub_portal_api_client import ApiError, AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
-from flowerhub_portal_api_client.types import AssetOwnerDetails, AssetOwnerProfile
+from flowerhub_portal_api_client.types import (
+    AssetOwnerDetails,
+    AssetOwnerProfile,
+    UptimeHistoryEntry,
+    UptimeMonth,
+    UptimePieSlice,
+)
 
 
 class DummyResp:
@@ -713,5 +719,225 @@ def test_fetch_asset_owner_details_no_raise_on_invalid():
         assert result["status_code"] == 200
         assert result["details"] is None
         assert isinstance(result["error"], str)
+
+    run(_run())
+
+
+def test_fetch_uptime_available_months_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 500
+    months_json = [
+        {"value": "2025-03", "label": "March 2025"},
+        {"value": "2025-04", "label": "April 2025"},
+        {"value": "2025-05", "label": "May 2025"},
+    ]
+    sess.add_response(
+        base + f"/asset-uptime/available-months/{asset_id}",
+        DummyResp(status=200, json_data=months_json, text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_id = asset_id
+
+    async def _run():
+        result = await client.async_fetch_available_uptime_months()
+        assert result["status_code"] == 200
+        months = result["months"]
+        assert months is not None and len(months) == 3
+        assert isinstance(months[0], UptimeMonth)
+        assert months[0].value == "2025-03"
+        assert months[-1].label == "May 2025"
+
+    run(_run())
+
+
+def test_fetch_uptime_available_months_non_list_payload():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 123
+    # Endpoint returns non-list unexpectedly
+    sess.add_response(
+        base + f"/asset-uptime/available-months/{asset_id}",
+        DummyResp(status=200, json_data={"value": "2025-03"}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_available_uptime_months(
+            asset_id, raise_on_error=False
+        )
+        assert result["status_code"] == 200
+        assert result["months"] is None
+        assert isinstance(result["error"], str)
+
+    run(_run())
+
+
+def test_fetch_uptime_available_months_missing_asset_id():
+    client = AsyncFlowerhubClient()
+    client.asset_id = None
+
+    async def _run():
+        try:
+            await client.async_fetch_available_uptime_months()
+            assert False, "Expected ValueError due to missing asset_id"
+        except ValueError as e:
+            assert "asset_id" in str(e)
+
+    run(_run())
+
+
+def test_fetch_uptime_history_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 600
+    history_json = [
+        {"date": "2025-03", "uptime": 100},
+        {"date": "2025-04", "uptime": 99},
+        {"date": "2025-05", "uptime": 92},
+    ]
+    sess.add_response(
+        base + f"/asset-uptime/bar-chart/history/{asset_id}",
+        DummyResp(status=200, json_data=history_json, text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_id = asset_id
+
+    async def _run():
+        result = await client.async_fetch_uptime_history()
+        assert result["status_code"] == 200
+        history = result["history"]
+        assert history is not None and len(history) == 3
+        assert isinstance(history[0], UptimeHistoryEntry)
+        assert history[0].date == "2025-03"
+        assert history[-1].uptime == 92
+
+    run(_run())
+
+
+def test_fetch_uptime_history_non_list_payload():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 601
+    # Endpoint returns non-list unexpectedly
+    sess.add_response(
+        base + f"/asset-uptime/bar-chart/history/{asset_id}",
+        DummyResp(status=200, json_data={"date": "2025-03"}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_uptime_history(asset_id, raise_on_error=False)
+        assert result["status_code"] == 200
+        assert result["history"] is None
+        assert isinstance(result["error"], str)
+
+    run(_run())
+
+
+def test_fetch_uptime_history_missing_asset_id():
+    client = AsyncFlowerhubClient()
+    client.asset_id = None
+
+    async def _run():
+        try:
+            await client.async_fetch_uptime_history()
+            assert False, "Expected ValueError due to missing asset_id"
+        except ValueError as e:
+            assert "asset_id" in str(e)
+
+    run(_run())
+
+
+def test_fetch_uptime_pie_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 700
+    slices_json = [
+        {"name": "uptime", "value": 2500000},
+        {"name": "downtime", "value": 5000},
+        {"name": "noData", "value": 0},
+    ]
+    # Match by prefix; omit query to allow startswith() to match
+    sess.add_response(
+        base + f"/asset-uptime/pie-chart/{asset_id}",
+        DummyResp(status=200, json_data=slices_json, text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_id = asset_id
+
+    async def _run():
+        result = await client.async_fetch_uptime_pie(period="2025-05")
+        assert result["status_code"] == 200
+        slices = result["slices"]
+        assert slices is not None and len(slices) == 3
+        assert isinstance(slices[0], UptimePieSlice)
+        assert slices[0].name == "uptime"
+        assert slices[1].name == "downtime" and slices[1].value == 5000
+
+    run(_run())
+
+
+def test_fetch_uptime_pie_non_list_payload():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 701
+    sess.add_response(
+        base + f"/asset-uptime/pie-chart/{asset_id}",
+        DummyResp(status=200, json_data={"name": "uptime"}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_uptime_pie(
+            asset_id, period="2025-06", raise_on_error=False
+        )
+        assert result["status_code"] == 200
+        assert result["slices"] is None
+        assert isinstance(result["error"], str)
+
+    run(_run())
+
+
+def test_fetch_uptime_pie_missing_asset_id():
+    client = AsyncFlowerhubClient()
+    client.asset_id = None
+
+    async def _run():
+        try:
+            await client.async_fetch_uptime_pie(period="2025-06")
+            assert False, "Expected ValueError due to missing asset_id"
+        except ValueError as e:
+            assert "asset_id" in str(e)
+
+    run(_run())
+
+
+def test_fetch_uptime_pie_missing_or_invalid_period():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    asset_id = 702
+    client = AsyncFlowerhubClient(base, session=sess)
+    client.asset_id = asset_id
+
+    async def _run():
+        # Missing
+        try:
+            await client.async_fetch_uptime_pie()
+            assert False, "Expected ValueError due to missing period"
+        except ValueError as e:
+            assert "period" in str(e)
+        # Invalid blank
+        try:
+            await client.async_fetch_uptime_pie(period="   ")
+            assert False, "Expected ValueError due to invalid period"
+        except ValueError as e:
+            assert "period" in str(e)
 
     run(_run())

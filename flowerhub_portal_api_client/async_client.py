@@ -27,6 +27,9 @@ from .parsers import (
     parse_invoice,
     parse_invoice_line,
     parse_invoices,
+    parse_uptime_available_months,
+    parse_uptime_history,
+    parse_uptime_pie,
     require_field,
     safe_float,
     safe_int,
@@ -48,6 +51,12 @@ from .types import (
     InvoiceLine,
     InvoicesResult,
     ProfileResult,
+    UptimeAvailableMonthsResult,
+    UptimeHistoryEntry,
+    UptimeHistoryResult,
+    UptimeMonth,
+    UptimePieResult,
+    UptimePieSlice,
 )
 
 aiohttp: Any
@@ -851,6 +860,201 @@ class AsyncFlowerhubClient:
         return {
             "status_code": resp.status,
             "profile": profile,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_available_uptime_months(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimeAvailableMonthsResult:
+        """Fetch available uptime months for the given asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimeAvailableMonthsResult: `{status_code, months, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime months: asset_id not set")
+            raise ValueError("asset_id is required for uptime available months fetch")
+        path = f"/asset-uptime/available-months/{aid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime available months",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        months: Optional[List[UptimeMonth]] = (
+            parse_uptime_available_months(data_list) if data_list is not None else None
+        )
+        if months is None and err:
+            return {
+                "status_code": resp.status,
+                "months": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "months": months,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_uptime_history(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimeHistoryResult:
+        """Fetch uptime ratio history per month for the given asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimeHistoryResult: `{status_code, history, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime history: asset_id not set")
+            raise ValueError("asset_id is required for uptime history fetch")
+        path = f"/asset-uptime/bar-chart/history/{aid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime history",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        history: Optional[List[UptimeHistoryEntry]] = (
+            parse_uptime_history(data_list) if data_list is not None else None
+        )
+        if history is None and err:
+            return {
+                "status_code": resp.status,
+                "history": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "history": history,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_uptime_pie(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        period: Optional[str] = None,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimePieResult:
+        """Fetch uptime pie-chart data for a period (seconds per category).
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            period: Period in `YYYY-MM` format (e.g., "2026-01"). Required.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimePieResult: `{status_code, slices, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id or period is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime pie: asset_id not set")
+            raise ValueError("asset_id is required for uptime pie fetch")
+        if not period or not isinstance(period, str) or not period.strip():
+            _LOGGER.error("Cannot fetch uptime pie: period not set or invalid")
+            raise ValueError("period (YYYY-MM) is required for uptime pie fetch")
+        # Compose path including query parameter
+        path = f"/asset-uptime/pie-chart/{aid}?period={period}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime pie",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        slices: Optional[List[UptimePieSlice]] = (
+            parse_uptime_pie(data_list) if data_list is not None else None
+        )
+        if slices is None and err:
+            return {
+                "status_code": resp.status,
+                "slices": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "slices": slices,
             "json": data,
             "text": text,
             "error": None,

@@ -23,6 +23,9 @@ from .types import (
     PostalAddress,
     SimpleDistributor,
     SimpleInstaller,
+    UptimeHistoryEntry,
+    UptimeMonth,
+    UptimePieSlice,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -367,6 +370,66 @@ def parse_asset_owner_details(data: Any) -> Optional[AssetOwnerDetails]:
     )
 
 
+def parse_uptime_available_months(data: Any) -> Optional[List[UptimeMonth]]:
+    """Parse a list of uptime available months.
+
+    Returns None if input is not a list.
+    """
+    if not isinstance(data, list):
+        return None
+    months: List[UptimeMonth] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        months.append(
+            UptimeMonth(
+                value=str(item.get("value", "")),
+                label=str(item.get("label", "")),
+            )
+        )
+    return months
+
+
+def parse_uptime_history(data: Any) -> Optional[List[UptimeHistoryEntry]]:
+    """Parse a list of uptime monthly ratio entries.
+
+    Returns None if input is not a list.
+    """
+    if not isinstance(data, list):
+        return None
+    entries: List[UptimeHistoryEntry] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            UptimeHistoryEntry(
+                date=str(item.get("date", "")),
+                uptime=safe_float(item.get("uptime")),
+            )
+        )
+    return entries
+
+
+def parse_uptime_pie(data: Any) -> Optional[List[UptimePieSlice]]:
+    """Parse uptime pie-chart slices list.
+
+    Returns None if input is not a list.
+    """
+    if not isinstance(data, list):
+        return None
+    slices: List[UptimePieSlice] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        slices.append(
+            UptimePieSlice(
+                name=str(item.get("name", "")),
+                value=safe_float(item.get("value")),
+            )
+        )
+    return slices
+
+
 __all__ = [
     "safe_int",
     "safe_float",
@@ -390,4 +453,7 @@ __all__ = [
     "parse_asset_info",
     "parse_compensation",
     "parse_asset_owner_details",
+    "parse_uptime_available_months",
+    "parse_uptime_history",
+    "parse_uptime_pie",
 ]

@@ -243,6 +243,40 @@ class ConsumptionRecord:
     type_id: Optional[int]
 
 
+@dataclass
+class UptimeMonth:
+    """Available uptime month item.
+
+    Represents a single month entry with machine-readable value and human label.
+    """
+
+    value: str
+    label: str
+
+
+@dataclass
+class UptimeHistoryEntry:
+    """Monthly uptime ratio entry.
+
+    Represents uptime ratio (percentage) for a given month.
+    """
+
+    date: str
+    uptime: Optional[float]
+
+
+@dataclass
+class UptimePieSlice:
+    """Pie slice for uptime distribution over a period.
+
+    `name` can be values like "uptime", "downtime", "noData".
+    `value` represents seconds in the period.
+    """
+
+    name: str
+    value: Optional[float]
+
+
 class AssetIdResult(TypedDict):
     """Result for asset ID discovery.
 
@@ -327,6 +361,60 @@ class ConsumptionResult(TypedDict):
     error: Optional[str]
 
 
+class UptimeAvailableMonthsResult(TypedDict):
+    """Result for uptime available months fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - months: List of parsed `UptimeMonth` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    months: Optional[List[UptimeMonth]]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class UptimeHistoryResult(TypedDict):
+    """Result for uptime monthly ratio history fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - history: List of parsed `UptimeHistoryEntry` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    history: Optional[List[UptimeHistoryEntry]]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class UptimePieResult(TypedDict):
+    """Result for uptime pie-chart endpoint.
+
+    Fields:
+    - status_code: HTTP status code
+    - slices: List of parsed `UptimePieSlice` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    slices: Optional[List[UptimePieSlice]]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
 class ProfileResult(TypedDict):
     """Result for asset owner profile fetch.
 
@@ -377,6 +465,9 @@ __all__ = [
     "InvoiceLine",
     "Invoice",
     "ConsumptionRecord",
+    "UptimeMonth",
+    "UptimeHistoryEntry",
+    "UptimePieSlice",
     "PostalAddress",
     "InstallerInfo",
     "AssetOwnerProfile",
@@ -393,4 +484,7 @@ __all__ = [
     "ConsumptionResult",
     "ProfileResult",
     "AssetOwnerDetailsResult",
+    "UptimeAvailableMonthsResult",
+    "UptimeHistoryResult",
+    "UptimePieResult",
 ]
