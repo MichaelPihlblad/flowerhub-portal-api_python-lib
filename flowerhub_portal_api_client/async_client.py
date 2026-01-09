@@ -5,6 +5,8 @@ It mirrors the synchronous API in `flowerhub_client.client` with async methods
 so it can be used with Home Assistant's event loop and `DataUpdateCoordinator`.
 """
 
+# pylint: disable=too-many-lines
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +20,7 @@ from .parsers import (
     ensure_list,
     parse_agreement_state,
     parse_asset_id_value,
+    parse_asset_owner_profile,
     parse_consumption,
     parse_electricity_agreement,
     parse_invoice,
@@ -33,6 +36,7 @@ from .types import (
     AgreementState,
     AssetFetchResult,
     AssetIdResult,
+    AssetOwnerProfile,
     ConsumptionRecord,
     ConsumptionResult,
     ElectricityAgreement,
@@ -40,6 +44,7 @@ from .types import (
     Invoice,
     InvoiceLine,
     InvoicesResult,
+    ProfileResult,
 )
 
 aiohttp: Any
@@ -779,6 +784,72 @@ class AsyncFlowerhubClient:
             "json": data,
             "text": text,
             "consumption": consumption,
+            "error": None,
+        }
+
+    async def async_fetch_asset_owner_profile(
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> ProfileResult:
+        """Fetch asset owner profile details.
+
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            ProfileResult: `{status_code, profile, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            _LOGGER.error("Cannot fetch profile: asset_owner_id not set")
+            raise ValueError("asset_owner_id is required for profile fetch")
+        path = f"/asset-owner/{aoid}/profile"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset owner profile",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "profile": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        profile: Optional[AssetOwnerProfile] = parse_asset_owner_profile(data_dict)
+        if profile is None and raise_on_error:
+            msg = "Unexpected response format for asset owner profile (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "profile": profile,
+            "json": data,
+            "text": text,
             "error": None,
         }
 

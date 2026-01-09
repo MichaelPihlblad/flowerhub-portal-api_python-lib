@@ -2,6 +2,7 @@ import asyncio
 
 from flowerhub_portal_api_client import ApiError, AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
+from flowerhub_portal_api_client.types import AssetOwnerProfile
 
 
 class DummyResp:
@@ -551,5 +552,74 @@ def test_readout_sequence_missing_asset_owner_id():
             raised = True
             assert "asset_owner_id" in str(e)
         assert raised
+
+    run(_run())
+
+
+def test_fetch_profile_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 123
+    profile_json = {
+        "id": aoid,
+        "firstName": "Ada",
+        "lastName": "Lovelace",
+        "mainEmail": "ada@example.com",
+        "contactEmail": None,
+        "phone": "+460000000",
+        "address": {"street": "Main St 1", "postalCode": "12345", "city": "Göteborg"},
+        "accountStatus": "Verified",
+        "installer": {
+            "id": 77,
+            "name": "Installer AB",
+            "address": {
+                "street": "Installergatan 2",
+                "postalCode": "54321",
+                "city": "Stockholm",
+            },
+        },
+    }
+    sess.add_response(
+        base + f"/asset-owner/{aoid}/profile",
+        DummyResp(status=200, json_data=profile_json, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_asset_owner_profile(aoid)
+        assert result["status_code"] == 200
+        assert isinstance(result["profile"], AssetOwnerProfile)
+        prof = result["profile"]
+        assert prof is not None and prof.id == aoid
+        assert prof.accountStatus == "Verified"
+        assert prof.address.city == "Göteborg"
+        assert prof.installer.id == 77
+
+    run(_run())
+
+
+def test_fetch_profile_invalid_payload_non_dict_returns_error_when_not_raising():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 5
+    # API returns a list unexpectedly
+    sess.add_response(
+        base + f"/asset-owner/{aoid}/profile",
+        DummyResp(status=200, json_data=[{"id": aoid}], text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_asset_owner_profile(
+            aoid, raise_on_error=False
+        )
+        assert result["status_code"] == 200
+        assert result["profile"] is None
+        assert (
+            isinstance(result["error"], str)
+            and "expected dict" in result["error"].lower()
+        )
 
     run(_run())

@@ -90,6 +90,38 @@ class AssetOwner:
 
 
 @dataclass
+class PostalAddress:
+    street: Optional[str] = None
+    postalCode: Optional[str] = None
+    city: Optional[str] = None
+
+
+@dataclass
+class InstallerInfo:
+    id: Optional[int] = None
+    name: Optional[str] = None
+    address: PostalAddress = field(default_factory=PostalAddress)
+
+
+@dataclass
+class AssetOwnerProfile:
+    """Profile details for an asset owner.
+
+    Mirrors the response of GET /asset-owner/{assetOwnerId}/profile.
+    """
+
+    id: int
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    mainEmail: Optional[str] = None
+    contactEmail: Optional[str] = None
+    phone: Optional[str] = None
+    address: PostalAddress = field(default_factory=PostalAddress)
+    accountStatus: Optional[str] = None
+    installer: InstallerInfo = field(default_factory=InstallerInfo)
+
+
+@dataclass
 class AgreementState:
     stateCategory: Optional[str] = None
     stateId: Optional[int] = None
@@ -236,6 +268,24 @@ class ConsumptionResult(TypedDict):
     error: Optional[str]
 
 
+class ProfileResult(TypedDict):
+    """Result for asset owner profile fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - profile: Parsed `AssetOwnerProfile` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    profile: Optional[AssetOwnerProfile]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
 __all__ = [
     "User",
     "LoginResponse",
@@ -250,9 +300,13 @@ __all__ = [
     "InvoiceLine",
     "Invoice",
     "ConsumptionRecord",
+    "PostalAddress",
+    "InstallerInfo",
+    "AssetOwnerProfile",
     "AssetIdResult",
     "AssetFetchResult",
     "AgreementResult",
     "InvoicesResult",
     "ConsumptionResult",
+    "ProfileResult",
 ]

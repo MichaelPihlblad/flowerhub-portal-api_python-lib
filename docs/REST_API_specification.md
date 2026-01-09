@@ -161,6 +161,37 @@ Notes: IDs/ocr/site_id are numeric strings; monetary and volume fields arrive as
 The async client returns the parsed list under the `invoices` key as `Invoice` dataclasses (with `InvoiceLine` children).
 
 ### GET /asset-owner/{assetOwnerId}/consumption
+### GET /asset-owner/{assetOwnerId}/profile
+Fetch profile details for the specified asset owner.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "firstName": <string>,
+  "lastName": <string>,
+  "mainEmail": <string>,
+  "contactEmail": <string|null>,
+  "phone": <string>,
+  "address": {
+    "street": <string>,
+    "postalCode": <string>,
+    "city": <string>
+  },
+  "accountStatus": <string>,
+  "installer": {
+    "id": <number>,
+    "name": <string>,
+    "address": {
+      "street": <string>,
+      "postalCode": <string>,
+      "city": <string>
+    }
+  }
+}
+```
+Notes: `id` equals the asset owner id; typical `accountStatus` is "Verified".
+
 Fetch consumption data for the specified asset owner.
 
 **Response:**

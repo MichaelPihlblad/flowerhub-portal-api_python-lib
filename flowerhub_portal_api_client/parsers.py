@@ -9,11 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from .exceptions import ApiError
 from .types import (
     AgreementState,
+    AssetOwnerProfile,
     ConsumptionRecord,
     ElectricityAgreement,
     FlowerHubStatus,
+    InstallerInfo,
     Invoice,
     InvoiceLine,
+    PostalAddress,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -241,6 +244,49 @@ def validate_flowerhub_status(
     )
 
 
+def parse_postal_address(payload: Any) -> PostalAddress:
+    if not isinstance(payload, dict):
+        return PostalAddress()
+    return PostalAddress(
+        street=payload.get("street"),
+        postalCode=payload.get("postalCode"),
+        city=payload.get("city"),
+    )
+
+
+def parse_installer_info(payload: Any) -> InstallerInfo:
+    if not isinstance(payload, dict):
+        return InstallerInfo()
+    return InstallerInfo(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+        address=parse_postal_address(payload.get("address")),
+    )
+
+
+def parse_asset_owner_profile(data: Any) -> Optional[AssetOwnerProfile]:
+    """Parse asset owner profile dict into AssetOwnerProfile dataclass.
+
+    Returns None if input is not a dict.
+    """
+    if not isinstance(data, dict):
+        return None
+    ao_id = safe_int(data.get("id"))
+    if ao_id is None:
+        return None
+    return AssetOwnerProfile(
+        id=ao_id,
+        firstName=data.get("firstName"),
+        lastName=data.get("lastName"),
+        mainEmail=data.get("mainEmail"),
+        contactEmail=data.get("contactEmail"),
+        phone=data.get("phone"),
+        address=parse_postal_address(data.get("address")),
+        accountStatus=data.get("accountStatus"),
+        installer=parse_installer_info(data.get("installer")),
+    )
+
+
 __all__ = [
     "safe_int",
     "safe_float",
@@ -255,4 +301,7 @@ __all__ = [
     "require_field",
     "parse_asset_id_value",
     "validate_flowerhub_status",
+    "parse_postal_address",
+    "parse_installer_info",
+    "parse_asset_owner_profile",
 ]
