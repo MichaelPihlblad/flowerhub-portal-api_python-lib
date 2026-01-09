@@ -80,6 +80,41 @@ Refresh the access token using the refresh token cookie.
 
 ## Asset Owner Endpoints
 
+### GET /asset-owner/{assetOwnerId}
+Get complete asset owner details including installer, distributor, asset, and compensation information.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "firstName": <string>,
+  "lastName": <string>,
+  "installer": {
+    "id": <number>,
+    "name": <string>
+  },
+  "distributor": {
+    "id": <number>,
+    "name": <string>
+  },
+  "asset": {
+    "id": <number>,
+    "serialNumber": <string>,
+    "assetModel": {
+      "id": <number>,
+      "name": <string>,
+      "manufacturer": <string>
+    }
+  },
+  "compensation": {
+    "status": <string>,
+    "message": <string>
+  },
+  "bessCompensationStartDate": <string>
+}
+```
+Notes: `compensation.status` is typically "Qualified"; dates are in ISO format (YYYY-MM-DD).
+
 ### GET /asset-owner/{assetOwnerId}/withAssetId
 Get asset owner information including associated asset ID.
 

@@ -9,7 +9,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from .exceptions import ApiError
 from .types import (
     AgreementState,
+    AssetInfo,
+    AssetModel,
+    AssetOwnerDetails,
     AssetOwnerProfile,
+    Compensation,
     ConsumptionRecord,
     ElectricityAgreement,
     FlowerHubStatus,
@@ -17,6 +21,8 @@ from .types import (
     Invoice,
     InvoiceLine,
     PostalAddress,
+    SimpleDistributor,
+    SimpleInstaller,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -287,6 +293,80 @@ def parse_asset_owner_profile(data: Any) -> Optional[AssetOwnerProfile]:
     )
 
 
+def parse_simple_installer(payload: Any) -> SimpleInstaller:
+    """Parse simple installer info (id and name only)."""
+    if not isinstance(payload, dict):
+        return SimpleInstaller()
+    return SimpleInstaller(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+    )
+
+
+def parse_simple_distributor(payload: Any) -> SimpleDistributor:
+    """Parse simple distributor info (id and name only)."""
+    if not isinstance(payload, dict):
+        return SimpleDistributor()
+    return SimpleDistributor(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+    )
+
+
+def parse_asset_model(payload: Any) -> AssetModel:
+    """Parse asset model info."""
+    if not isinstance(payload, dict):
+        return AssetModel()
+    return AssetModel(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+        manufacturer=payload.get("manufacturer"),
+    )
+
+
+def parse_asset_info(payload: Any) -> AssetInfo:
+    """Parse asset info with serial number and model."""
+    if not isinstance(payload, dict):
+        return AssetInfo()
+    return AssetInfo(
+        id=safe_int(payload.get("id")),
+        serialNumber=payload.get("serialNumber"),
+        assetModel=parse_asset_model(payload.get("assetModel")),
+    )
+
+
+def parse_compensation(payload: Any) -> Compensation:
+    """Parse compensation status and message."""
+    if not isinstance(payload, dict):
+        return Compensation()
+    return Compensation(
+        status=payload.get("status"),
+        message=payload.get("message"),
+    )
+
+
+def parse_asset_owner_details(data: Any) -> Optional[AssetOwnerDetails]:
+    """Parse asset owner details dict into AssetOwnerDetails dataclass.
+
+    Returns None if input is not a dict or missing required id field.
+    """
+    if not isinstance(data, dict):
+        return None
+    ao_id = safe_int(data.get("id"))
+    if ao_id is None:
+        return None
+    return AssetOwnerDetails(
+        id=ao_id,
+        firstName=data.get("firstName"),
+        lastName=data.get("lastName"),
+        installer=parse_simple_installer(data.get("installer")),
+        distributor=parse_simple_distributor(data.get("distributor")),
+        asset=parse_asset_info(data.get("asset")),
+        compensation=parse_compensation(data.get("compensation")),
+        bessCompensationStartDate=data.get("bessCompensationStartDate"),
+    )
+
+
 __all__ = [
     "safe_int",
     "safe_float",
@@ -304,4 +384,10 @@ __all__ = [
     "parse_postal_address",
     "parse_installer_info",
     "parse_asset_owner_profile",
+    "parse_simple_installer",
+    "parse_simple_distributor",
+    "parse_asset_model",
+    "parse_asset_info",
+    "parse_compensation",
+    "parse_asset_owner_details",
 ]

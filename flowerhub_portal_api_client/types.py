@@ -90,6 +90,65 @@ class AssetOwner:
 
 
 @dataclass
+class SimpleInstaller:
+    """Minimal installer info (id and name only)."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class SimpleDistributor:
+    """Minimal distributor info (id and name only)."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class AssetModel:
+    """Asset model with manufacturer info."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+    manufacturer: Optional[str] = None
+
+
+@dataclass
+class AssetInfo:
+    """Asset information with serial number and model."""
+
+    id: Optional[int] = None
+    serialNumber: Optional[str] = None
+    assetModel: AssetModel = field(default_factory=AssetModel)
+
+
+@dataclass
+class Compensation:
+    """Compensation status and message."""
+
+    status: Optional[str] = None
+    message: Optional[str] = None
+
+
+@dataclass
+class AssetOwnerDetails:
+    """Complete asset owner details.
+
+    Mirrors the response of GET /asset-owner/{assetOwnerId}.
+    """
+
+    id: int
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    installer: SimpleInstaller = field(default_factory=SimpleInstaller)
+    distributor: SimpleDistributor = field(default_factory=SimpleDistributor)
+    asset: AssetInfo = field(default_factory=AssetInfo)
+    compensation: Compensation = field(default_factory=Compensation)
+    bessCompensationStartDate: Optional[str] = None
+
+
+@dataclass
 class PostalAddress:
     street: Optional[str] = None
     postalCode: Optional[str] = None
@@ -286,6 +345,24 @@ class ProfileResult(TypedDict):
     error: Optional[str]
 
 
+class AssetOwnerDetailsResult(TypedDict):
+    """Result for asset owner details fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - details: Parsed `AssetOwnerDetails` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    details: Optional[AssetOwnerDetails]
+    json: Any
+    text: str
+    error: Optional[str]
+
+
 __all__ = [
     "User",
     "LoginResponse",
@@ -303,10 +380,17 @@ __all__ = [
     "PostalAddress",
     "InstallerInfo",
     "AssetOwnerProfile",
+    "SimpleInstaller",
+    "SimpleDistributor",
+    "AssetModel",
+    "AssetInfo",
+    "Compensation",
+    "AssetOwnerDetails",
     "AssetIdResult",
     "AssetFetchResult",
     "AgreementResult",
     "InvoicesResult",
     "ConsumptionResult",
     "ProfileResult",
+    "AssetOwnerDetailsResult",
 ]

@@ -2,7 +2,7 @@ import asyncio
 
 from flowerhub_portal_api_client import ApiError, AuthenticationError, FlowerHubStatus
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
-from flowerhub_portal_api_client.types import AssetOwnerProfile
+from flowerhub_portal_api_client.types import AssetOwnerDetails, AssetOwnerProfile
 
 
 class DummyResp:
@@ -621,5 +621,97 @@ def test_fetch_profile_invalid_payload_non_dict_returns_error_when_not_raising()
             isinstance(result["error"], str)
             and "expected dict" in result["error"].lower()
         )
+
+    run(_run())
+
+
+def test_fetch_asset_owner_details_success():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 100
+    details_json = {
+        "id": aoid,
+        "firstName": "Alice",
+        "lastName": "Smith",
+        "installer": {"id": 42, "name": "Test Installer Co"},
+        "distributor": {"id": 23, "name": "Example Distributor AB"},
+        "asset": {
+            "id": 500,
+            "serialNumber": "SN123456789",
+            "assetModel": {
+                "id": 10,
+                "name": "Solar Model X",
+                "manufacturer": "TestManufacturer",
+            },
+        },
+        "compensation": {"status": "Qualified", "message": "Qualified"},
+        "bessCompensationStartDate": "2024-01-01",
+    }
+    sess.add_response(
+        base + f"/asset-owner/{aoid}",
+        DummyResp(status=200, json_data=details_json, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_asset_owner(aoid)
+        assert result["status_code"] == 200
+        assert isinstance(result["details"], AssetOwnerDetails)
+        details = result["details"]
+        assert details is not None and details.id == aoid
+        assert details.firstName == "Alice"
+        assert details.lastName == "Smith"
+        assert details.installer.id == 42
+        assert details.installer.name == "Test Installer Co"
+        assert details.distributor.id == 23
+        assert details.asset.id == 500
+        assert details.asset.serialNumber == "SN123456789"
+        assert details.asset.assetModel.manufacturer == "TestManufacturer"
+        assert details.compensation.status == "Qualified"
+        assert details.bessCompensationStartDate == "2024-01-01"
+
+    run(_run())
+
+
+def test_fetch_asset_owner_details_missing_id():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 10
+    # Missing required id field
+    sess.add_response(
+        base + f"/asset-owner/{aoid}",
+        DummyResp(status=200, json_data={"firstName": "Test"}, text="{"),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        try:
+            await client.async_fetch_asset_owner(aoid)
+            assert False, "Expected ApiError due to missing id"
+        except ApiError as e:
+            assert "missing or invalid id" in str(e).lower()
+
+    run(_run())
+
+
+def test_fetch_asset_owner_details_no_raise_on_invalid():
+    sess = DummySession()
+    base = "https://api.portal.flowerhub.se"
+    aoid = 11
+    # Non-dict payload
+    sess.add_response(
+        base + f"/asset-owner/{aoid}",
+        DummyResp(status=200, json_data=[], text="["),
+    )
+
+    client = AsyncFlowerhubClient(base, session=sess)
+
+    async def _run():
+        result = await client.async_fetch_asset_owner(aoid, raise_on_error=False)
+        assert result["status_code"] == 200
+        assert result["details"] is None
+        assert isinstance(result["error"], str)
 
     run(_run())

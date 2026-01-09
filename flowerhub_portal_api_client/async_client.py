@@ -20,6 +20,7 @@ from .parsers import (
     ensure_list,
     parse_agreement_state,
     parse_asset_id_value,
+    parse_asset_owner_details,
     parse_asset_owner_profile,
     parse_consumption,
     parse_electricity_agreement,
@@ -36,6 +37,8 @@ from .types import (
     AgreementState,
     AssetFetchResult,
     AssetIdResult,
+    AssetOwnerDetails,
+    AssetOwnerDetailsResult,
     AssetOwnerProfile,
     ConsumptionRecord,
     ConsumptionResult,
@@ -848,6 +851,72 @@ class AsyncFlowerhubClient:
         return {
             "status_code": resp.status,
             "profile": profile,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_asset_owner(
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> AssetOwnerDetailsResult:
+        """Fetch asset owner details including installer, distributor, asset, and compensation.
+
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            AssetOwnerDetailsResult: `{status_code, details, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            _LOGGER.error("Cannot fetch asset owner: asset_owner_id not set")
+            raise ValueError("asset_owner_id is required for asset owner fetch")
+        path = f"/asset-owner/{aoid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset owner details",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "details": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        details: Optional[AssetOwnerDetails] = parse_asset_owner_details(data_dict)
+        if details is None and raise_on_error:
+            msg = "Unexpected response format for asset owner details (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "details": details,
             "json": data,
             "text": text,
             "error": None,
