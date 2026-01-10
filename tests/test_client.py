@@ -993,13 +993,20 @@ def test_fetch_uptime_pie_missing_or_invalid_period():
     client.asset_id = asset_id
 
     async def _run():
-        # Missing
-        try:
-            await client.async_fetch_uptime_pie()
-            assert False, "Expected ValueError due to missing period"
-        except ValueError as e:
-            assert "period" in str(e)
-        # Invalid blank
+        # Missing period defaults to current month, should not raise
+        # Add a response that matches the default period format
+        slices_json = [
+            {"name": "uptime", "value": 2500000},
+        ]
+        sess.add_response(
+            base + f"/asset-uptime/pie-chart/{asset_id}",
+            DummyResp(status=200, json_data=slices_json, text="["),
+        )
+        result = await client.async_fetch_uptime_pie()
+        assert result["status_code"] == 200
+        assert result["slices"] is not None
+
+        # Invalid blank period should raise ValueError
         try:
             await client.async_fetch_uptime_pie(period="   ")
             assert False, "Expected ValueError due to invalid period"

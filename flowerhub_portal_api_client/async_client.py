@@ -10,9 +10,10 @@ so it can be used with Home Assistant's event loop and `DataUpdateCoordinator`.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import random
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from .exceptions import ApiError, AuthenticationError
 from .parsers import (
@@ -62,11 +63,13 @@ from .types import (
     UptimePieSlice,
 )
 
-aiohttp: Any
-try:
+if TYPE_CHECKING:
     import aiohttp
-except Exception:  # pragma: no cover - optional dependency
-    aiohttp = None
+else:
+    try:
+        import aiohttp
+    except ImportError:
+        aiohttp = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,13 +88,13 @@ class AsyncFlowerhubClient:
     def __init__(
         self,
         base_url: str = "https://api.portal.flowerhub.se",
-        session: Optional["aiohttp.ClientSession"] = None,
+        session: Optional[aiohttp.ClientSession] = None,
         on_auth_failed: Optional[Callable[[], None]] = None,
-        on_api_error: Optional[Callable[["ApiError"], None]] = None,
+        on_api_error: Optional[Callable[[ApiError], None]] = None,
     ):
         # session or aiohttp may be provided; actual request-time will raise if session is missing
         self.base_url = base_url
-        self._session: Optional["aiohttp.ClientSession"] = session
+        self._session: Optional[aiohttp.ClientSession] = session
         self.on_auth_failed = on_auth_failed
         self.on_api_error = on_api_error
         self.asset_owner_id: Optional[int] = None
@@ -157,9 +160,10 @@ class AsyncFlowerhubClient:
             if isinstance(override, (int, float))
             else self.request_timeout_total
         )
-        if aiohttp and total is not None and total > 0 and "timeout" not in kwargs:
+        if total is not None and total > 0 and "timeout" not in kwargs:
             try:
-                kwargs["timeout"] = aiohttp.ClientTimeout(total=float(total))
+                if aiohttp is not None:
+                    kwargs["timeout"] = aiohttp.ClientTimeout(total=float(total))
             except Exception as err:  # pragma: no cover - best effort
                 _LOGGER.debug("Failed to construct ClientTimeout: %s", err)
         return kwargs
@@ -210,7 +214,7 @@ class AsyncFlowerhubClient:
             raise err
 
     async def _attempt_refresh(
-        self, sess: "aiohttp.ClientSession", headers: Dict[str, str]
+        self, sess: aiohttp.ClientSession, headers: Dict[str, str]
     ) -> bool:
         try:
             refresh_cm: Any = sess.request(
@@ -250,7 +254,7 @@ class AsyncFlowerhubClient:
 
     async def _retry_after_refresh(
         self,
-        sess: "aiohttp.ClientSession",
+        sess: aiohttp.ClientSession,
         method: str,
         url: str,
         *,
@@ -290,7 +294,7 @@ class AsyncFlowerhubClient:
 
     async def _send_request(
         self,
-        sess: "aiohttp.ClientSession",
+        sess: aiohttp.ClientSession,
         method: str,
         url: str,
         *,
@@ -359,6 +363,23 @@ class AsyncFlowerhubClient:
             )
 
             if resp.status == 401:
+                # Do not attempt refresh on explicit login calls; surface a clear error instead
+                if "/auth/login" in path:
+                    _LOGGER.error(
+                        "Login request to %s returned 401; refresh not attempted", path
+                    )
+                    if self.on_auth_failed:
+                        try:
+                            self.on_auth_failed()
+                        except Exception as err:  # pragma: no cover - user callback
+                            _LOGGER.error(
+                                "on_auth_failed callback raised an exception: %s",
+                                err,
+                                exc_info=True,
+                            )
+                    raise AuthenticationError(
+                        "Login failed (401). Invalid credentials or login rejected."
+                    )
                 _LOGGER.info("Access token expired for %s, attempting refresh", path)
                 return await self._retry_after_refresh(
                     sess,
@@ -1011,7 +1032,7 @@ class AsyncFlowerhubClient:
 
         Args:
             asset_id: Asset identifier. Defaults to `self.asset_id`.
-            period: Period in `YYYY-MM` format (e.g., "2026-01"). Required.
+            period: Period in `YYYY-MM` format (e.g., "2026-01"). Defaults to current month.
             raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
             retry_5xx_attempts: Optional number of retries for 5xx.
             timeout_total: Optional total timeout override in seconds.
@@ -1020,7 +1041,7 @@ class AsyncFlowerhubClient:
             UptimePieResult: `{status_code, slices, json, text, error}`.
 
         Raises:
-            ValueError: If asset id or period is not provided.
+            ValueError: If asset id is not provided or period format is invalid.
             ApiError: If payload is not a list (when `raise_on_error=True`).
         """
 
@@ -1028,9 +1049,17 @@ class AsyncFlowerhubClient:
         if not aid:
             _LOGGER.error("Cannot fetch uptime pie: asset_id not set")
             raise ValueError("asset_id is required for uptime pie fetch")
-        if not period or not isinstance(period, str) or not period.strip():
-            _LOGGER.error("Cannot fetch uptime pie: period not set or invalid")
-            raise ValueError("period (YYYY-MM) is required for uptime pie fetch")
+
+        # Default to current month if period not provided
+        if period is None:
+            dt_now = datetime.datetime.now()
+            period = f"{dt_now.year:04d}-{dt_now.month:02d}"
+            _LOGGER.debug("Using current period for uptime pie: %s", period)
+        elif not isinstance(period, str) or not period.strip():
+            _LOGGER.error("Cannot fetch uptime pie: period format invalid")
+            raise ValueError(
+                "period must be a valid YYYY-MM string for uptime pie fetch"
+            )
         # Compose path including query parameter
         path = f"/asset-uptime/pie-chart/{aid}?period={period}"
         url = self._build_url(path)
@@ -1256,7 +1285,7 @@ class AsyncFlowerhubClient:
         interval_seconds: float = 60.0,
         run_immediately: bool = False,
         on_update: Optional[Callable[[FlowerHubStatus], None]] = None,
-        result_queue: Optional["asyncio.Queue"] = None,
+        result_queue: Optional[asyncio.Queue] = None,
     ) -> asyncio.Task:
         """Start a background task that periodically fetches the asset.
 
