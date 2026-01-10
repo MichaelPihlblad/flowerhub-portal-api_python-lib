@@ -9,11 +9,23 @@ from typing import Any, Dict, List, Optional, Tuple
 from .exceptions import ApiError
 from .types import (
     AgreementState,
+    AssetInfo,
+    AssetModel,
+    AssetOwnerDetails,
+    AssetOwnerProfile,
+    Compensation,
     ConsumptionRecord,
     ElectricityAgreement,
     FlowerHubStatus,
+    InstallerInfo,
     Invoice,
     InvoiceLine,
+    PostalAddress,
+    Revenue,
+    SimpleDistributor,
+    SimpleInstaller,
+    UptimeHistoryEntry,
+    UptimeMonth,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -241,6 +253,181 @@ def validate_flowerhub_status(
     )
 
 
+def parse_postal_address(payload: Any) -> PostalAddress:
+    if not isinstance(payload, dict):
+        return PostalAddress()
+    return PostalAddress(
+        street=payload.get("street"),
+        postalCode=payload.get("postalCode"),
+        city=payload.get("city"),
+    )
+
+
+def parse_installer_info(payload: Any) -> InstallerInfo:
+    if not isinstance(payload, dict):
+        return InstallerInfo()
+    return InstallerInfo(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+        address=parse_postal_address(payload.get("address")),
+    )
+
+
+def parse_asset_owner_profile(data: Any) -> Optional[AssetOwnerProfile]:
+    """Parse asset owner profile dict into AssetOwnerProfile dataclass.
+
+    Returns None if input is not a dict.
+    """
+    if not isinstance(data, dict):
+        return None
+    ao_id = safe_int(data.get("id"))
+    if ao_id is None:
+        return None
+    return AssetOwnerProfile(
+        id=ao_id,
+        firstName=data.get("firstName"),
+        lastName=data.get("lastName"),
+        mainEmail=data.get("mainEmail"),
+        contactEmail=data.get("contactEmail"),
+        phone=data.get("phone"),
+        address=parse_postal_address(data.get("address")),
+        accountStatus=data.get("accountStatus"),
+        installer=parse_installer_info(data.get("installer")),
+    )
+
+
+def parse_simple_installer(payload: Any) -> SimpleInstaller:
+    """Parse simple installer info (id and name only)."""
+    if not isinstance(payload, dict):
+        return SimpleInstaller()
+    return SimpleInstaller(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+    )
+
+
+def parse_simple_distributor(payload: Any) -> SimpleDistributor:
+    """Parse simple distributor info (id and name only)."""
+    if not isinstance(payload, dict):
+        return SimpleDistributor()
+    return SimpleDistributor(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+    )
+
+
+def parse_asset_model(payload: Any) -> AssetModel:
+    """Parse asset model info."""
+    if not isinstance(payload, dict):
+        return AssetModel()
+    return AssetModel(
+        id=safe_int(payload.get("id")),
+        name=payload.get("name"),
+        manufacturer=payload.get("manufacturer"),
+    )
+
+
+def parse_asset_info(payload: Any) -> AssetInfo:
+    """Parse asset info with serial number and model."""
+    if not isinstance(payload, dict):
+        return AssetInfo()
+    return AssetInfo(
+        id=safe_int(payload.get("id")),
+        serialNumber=payload.get("serialNumber"),
+        assetModel=parse_asset_model(payload.get("assetModel")),
+    )
+
+
+def parse_compensation(payload: Any) -> Compensation:
+    """Parse compensation status and message."""
+    if not isinstance(payload, dict):
+        return Compensation()
+    return Compensation(
+        status=payload.get("status"),
+        message=payload.get("message"),
+    )
+
+
+def parse_asset_owner_details(data: Any) -> Optional[AssetOwnerDetails]:
+    """Parse asset owner details dict into AssetOwnerDetails dataclass.
+
+    Returns None if input is not a dict or missing required id field.
+    """
+    if not isinstance(data, dict):
+        return None
+    ao_id = safe_int(data.get("id"))
+    if ao_id is None:
+        return None
+    return AssetOwnerDetails(
+        id=ao_id,
+        firstName=data.get("firstName"),
+        lastName=data.get("lastName"),
+        installer=parse_simple_installer(data.get("installer")),
+        distributor=parse_simple_distributor(data.get("distributor")),
+        asset=parse_asset_info(data.get("asset")),
+        compensation=parse_compensation(data.get("compensation")),
+        bessCompensationStartDate=data.get("bessCompensationStartDate"),
+    )
+
+
+def parse_revenue(data: Any) -> Optional[Revenue]:
+    """Parse revenue summary for last invoice.
+
+    Returns None if input is not a dict or missing id.
+    """
+    if not isinstance(data, dict):
+        return None
+    rev_id = safe_int(data.get("id"))
+    if rev_id is None:
+        return None
+    return Revenue(
+        id=rev_id,
+        minAvailablePower=safe_float(data.get("minAvailablePower")),
+        compensation=safe_float(data.get("compensation")),
+        compensationPerKW=safe_float(data.get("compensationPerKW")),
+    )
+
+
+def parse_uptime_available_months(data: Any) -> Optional[List[UptimeMonth]]:
+    """Parse a list of uptime available months.
+
+    Returns None if input is not a list.
+    """
+    if not isinstance(data, list):
+        return None
+    months: List[UptimeMonth] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        months.append(
+            UptimeMonth(
+                value=str(item.get("value", "")),
+                label=str(item.get("label", "")),
+            )
+        )
+    return months
+
+
+def parse_uptime_history(data: Any) -> Optional[List[UptimeHistoryEntry]]:
+    """Parse a list of uptime monthly ratio entries.
+
+    Returns None if input is not a list.
+    """
+    if not isinstance(data, list):
+        return None
+    entries: List[UptimeHistoryEntry] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            UptimeHistoryEntry(
+                date=str(item.get("date", "")),
+                uptime=safe_float(item.get("uptime")),
+            )
+        )
+    return entries
+
+
 __all__ = [
     "safe_int",
     "safe_float",
@@ -255,4 +442,16 @@ __all__ = [
     "require_field",
     "parse_asset_id_value",
     "validate_flowerhub_status",
+    "parse_postal_address",
+    "parse_installer_info",
+    "parse_asset_owner_profile",
+    "parse_simple_installer",
+    "parse_simple_distributor",
+    "parse_asset_model",
+    "parse_asset_info",
+    "parse_compensation",
+    "parse_asset_owner_details",
+    "parse_revenue",
+    "parse_uptime_available_months",
+    "parse_uptime_history",
 ]

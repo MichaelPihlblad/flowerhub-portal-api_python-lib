@@ -5,12 +5,15 @@ It mirrors the synchronous API in `flowerhub_client.client` with async methods
 so it can be used with Home Assistant's event loop and `DataUpdateCoordinator`.
 """
 
+# pylint: disable=too-many-lines
+
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import random
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from .exceptions import ApiError, AuthenticationError
 from .parsers import (
@@ -18,11 +21,16 @@ from .parsers import (
     ensure_list,
     parse_agreement_state,
     parse_asset_id_value,
+    parse_asset_owner_details,
+    parse_asset_owner_profile,
     parse_consumption,
     parse_electricity_agreement,
     parse_invoice,
     parse_invoice_line,
     parse_invoices,
+    parse_revenue,
+    parse_uptime_available_months,
+    parse_uptime_history,
     require_field,
     safe_float,
     safe_int,
@@ -33,6 +41,9 @@ from .types import (
     AgreementState,
     AssetFetchResult,
     AssetIdResult,
+    AssetOwnerDetails,
+    AssetOwnerDetailsResult,
+    AssetOwnerProfile,
     ConsumptionRecord,
     ConsumptionResult,
     ElectricityAgreement,
@@ -40,13 +51,23 @@ from .types import (
     Invoice,
     InvoiceLine,
     InvoicesResult,
+    ProfileResult,
+    Revenue,
+    RevenueResult,
+    UptimeAvailableMonthsResult,
+    UptimeHistoryEntry,
+    UptimeHistoryResult,
+    UptimeMonth,
+    UptimePieResult,
 )
 
-aiohttp: Any
-try:
+if TYPE_CHECKING:
     import aiohttp
-except Exception:  # pragma: no cover - optional dependency
-    aiohttp = None
+else:
+    try:
+        import aiohttp
+    except ImportError:
+        aiohttp = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,13 +86,13 @@ class AsyncFlowerhubClient:
     def __init__(
         self,
         base_url: str = "https://api.portal.flowerhub.se",
-        session: Optional["aiohttp.ClientSession"] = None,
+        session: Optional[aiohttp.ClientSession] = None,
         on_auth_failed: Optional[Callable[[], None]] = None,
-        on_api_error: Optional[Callable[["ApiError"], None]] = None,
+        on_api_error: Optional[Callable[[ApiError], None]] = None,
     ):
         # session or aiohttp may be provided; actual request-time will raise if session is missing
         self.base_url = base_url
-        self._session: Optional["aiohttp.ClientSession"] = session
+        self._session: Optional[aiohttp.ClientSession] = session
         self.on_auth_failed = on_auth_failed
         self.on_api_error = on_api_error
         self.asset_owner_id: Optional[int] = None
@@ -117,6 +138,10 @@ class AsyncFlowerhubClient:
     def _parse_consumption(cls, data: Any) -> Optional[List[ConsumptionRecord]]:
         return parse_consumption(data)
 
+    @classmethod
+    def _parse_revenue(cls, data: Any) -> Optional[Revenue]:
+        return parse_revenue(data)
+
     # ----- Internal helpers -----
     def _build_url(self, path: str) -> str:
         return (
@@ -133,9 +158,10 @@ class AsyncFlowerhubClient:
             if isinstance(override, (int, float))
             else self.request_timeout_total
         )
-        if aiohttp and total is not None and total > 0 and "timeout" not in kwargs:
+        if total is not None and total > 0 and "timeout" not in kwargs:
             try:
-                kwargs["timeout"] = aiohttp.ClientTimeout(total=float(total))
+                if aiohttp is not None:
+                    kwargs["timeout"] = aiohttp.ClientTimeout(total=float(total))
             except Exception as err:  # pragma: no cover - best effort
                 _LOGGER.debug("Failed to construct ClientTimeout: %s", err)
         return kwargs
@@ -186,7 +212,7 @@ class AsyncFlowerhubClient:
             raise err
 
     async def _attempt_refresh(
-        self, sess: "aiohttp.ClientSession", headers: Dict[str, str]
+        self, sess: aiohttp.ClientSession, headers: Dict[str, str]
     ) -> bool:
         try:
             refresh_cm: Any = sess.request(
@@ -226,7 +252,7 @@ class AsyncFlowerhubClient:
 
     async def _retry_after_refresh(
         self,
-        sess: "aiohttp.ClientSession",
+        sess: aiohttp.ClientSession,
         method: str,
         url: str,
         *,
@@ -266,7 +292,7 @@ class AsyncFlowerhubClient:
 
     async def _send_request(
         self,
-        sess: "aiohttp.ClientSession",
+        sess: aiohttp.ClientSession,
         method: str,
         url: str,
         *,
@@ -335,6 +361,23 @@ class AsyncFlowerhubClient:
             )
 
             if resp.status == 401:
+                # Do not attempt refresh on explicit login calls; surface a clear error instead
+                if "/auth/login" in path:
+                    _LOGGER.error(
+                        "Login request to %s returned 401; refresh not attempted", path
+                    )
+                    if self.on_auth_failed:
+                        try:
+                            self.on_auth_failed()
+                        except Exception as err:  # pragma: no cover - user callback
+                            _LOGGER.error(
+                                "on_auth_failed callback raised an exception: %s",
+                                err,
+                                exc_info=True,
+                            )
+                    raise AuthenticationError(
+                        "Login failed (401). Invalid credentials or login rejected."
+                    )
                 _LOGGER.info("Access token expired for %s, attempting refresh", path)
                 return await self._retry_after_refresh(
                     sess,
@@ -449,7 +492,7 @@ class AsyncFlowerhubClient:
             raise ValueError("asset_owner_id is required for asset id fetch")
         path = f"/asset-owner/{owner_id}/withAssetId"
         url = self._build_url(path)
-        resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
 
         data_dict, err = ensure_dict(
             data,
@@ -459,7 +502,13 @@ class AsyncFlowerhubClient:
             raise_on_error=raise_on_error,
         )
         if data_dict is None:
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         asset_id_value, err = require_field(
             data_dict,
@@ -469,7 +518,13 @@ class AsyncFlowerhubClient:
             raise_on_error=raise_on_error,
         )
         if asset_id_value is None:
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         asset_id_int, err = parse_asset_id_value(
             asset_id_value,
@@ -480,11 +535,23 @@ class AsyncFlowerhubClient:
         )
         if asset_id_int is None:
             self.asset_id = None
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         self.asset_id = asset_id_int
         _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
-        return {"status_code": resp.status, "asset_id": self.asset_id, "error": None}
+        return {
+            "status_code": resp.status,
+            "asset_id": self.asset_id,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
 
     async def async_fetch_asset(
         self,
@@ -515,7 +582,7 @@ class AsyncFlowerhubClient:
             raise ValueError("asset_id is required for asset fetch")
         path = f"/asset/{aid}"
         url = self._build_url(path)
-        resp, data, _ = await self._request(
+        resp, data, text = await self._request(
             path,
             raise_on_error=raise_on_error,
             retry_5xx_attempts=retry_5xx_attempts,
@@ -534,6 +601,8 @@ class AsyncFlowerhubClient:
                 "status_code": resp.status,
                 "asset_info": None,
                 "flowerhub_status": None,
+                "json": data,
+                "text": text,
                 "error": err,
             }
 
@@ -549,6 +618,8 @@ class AsyncFlowerhubClient:
                 "status_code": resp.status,
                 "asset_info": data_dict,
                 "flowerhub_status": None,
+                "json": data,
+                "text": text,
                 "error": err,
             }
 
@@ -563,6 +634,8 @@ class AsyncFlowerhubClient:
             "status_code": resp.status,
             "asset_info": self.asset_info,
             "flowerhub_status": self.flowerhub_status,
+            "json": data,
+            "text": text,
             "error": None,
         }
 
@@ -596,7 +669,7 @@ class AsyncFlowerhubClient:
             retry_5xx_attempts=retry_5xx_attempts,
             timeout_total=timeout_total,
         )
-        return {"status_code": resp.status, "json": data, "text": text}
+        return {"status_code": resp.status, "json": data, "text": text, "error": None}
 
     async def async_fetch_electricity_agreement(
         self,
@@ -782,6 +855,446 @@ class AsyncFlowerhubClient:
             "error": None,
         }
 
+    async def async_fetch_asset_owner_profile(
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> ProfileResult:
+        """Fetch asset owner profile details.
+
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            ProfileResult: `{status_code, profile, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            _LOGGER.error("Cannot fetch profile: asset_owner_id not set")
+            raise ValueError("asset_owner_id is required for profile fetch")
+        path = f"/asset-owner/{aoid}/profile"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset owner profile",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "profile": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        profile: Optional[AssetOwnerProfile] = parse_asset_owner_profile(data_dict)
+        if profile is None and raise_on_error:
+            msg = "Unexpected response format for asset owner profile (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "profile": profile,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_available_uptime_months(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimeAvailableMonthsResult:
+        """Fetch available uptime months for the given asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimeAvailableMonthsResult: `{status_code, months, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime months: asset_id not set")
+            raise ValueError("asset_id is required for uptime available months fetch")
+        path = f"/asset-uptime/available-months/{aid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime available months",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        months: Optional[List[UptimeMonth]] = (
+            parse_uptime_available_months(data_list) if data_list is not None else None
+        )
+        if months is None and err:
+            return {
+                "status_code": resp.status,
+                "months": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "months": months,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_uptime_history(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimeHistoryResult:
+        """Fetch uptime ratio history per month for the given asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimeHistoryResult: `{status_code, history, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime history: asset_id not set")
+            raise ValueError("asset_id is required for uptime history fetch")
+        path = f"/asset-uptime/bar-chart/history/{aid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime history",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        history: Optional[List[UptimeHistoryEntry]] = (
+            parse_uptime_history(data_list) if data_list is not None else None
+        )
+        if history is None and err:
+            return {
+                "status_code": resp.status,
+                "history": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "history": history,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_uptime_pie(  # pylint: disable=too-many-locals,too-many-branches
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        period: Optional[str] = None,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> UptimePieResult:
+        """Fetch uptime pie-chart data for a period (seconds per category).
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            period: Period in `YYYY-MM` format (e.g., "2026-01"). Defaults to current month.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            UptimePieResult: `{status_code, uptime, downtime, noData, uptime_ratio_total, uptime_ratio_actual, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided or period format is invalid.
+            ApiError: If payload is not a list (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch uptime pie: asset_id not set")
+            raise ValueError("asset_id is required for uptime pie fetch")
+
+        # Default to current month if period not provided
+        if period is None:
+            dt_now = datetime.datetime.now()
+            period = f"{dt_now.year:04d}-{dt_now.month:02d}"
+            _LOGGER.debug("Using current period for uptime pie: %s", period)
+        elif not isinstance(period, str) or not period.strip():
+            _LOGGER.error("Cannot fetch uptime pie: period format invalid")
+            raise ValueError(
+                "period must be a valid YYYY-MM string for uptime pie fetch"
+            )
+        # Compose path including query parameter
+        path = f"/asset-uptime/pie-chart/{aid}?period={period}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_list, err = ensure_list(
+            data,
+            context="uptime pie",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+
+        # Extract individual slice values directly from raw JSON
+        uptime = None
+        downtime = None
+        no_data = None
+        uptime_ratio_total = None
+        uptime_ratio_actual = None
+
+        if data_list is not None:
+            # Parse raw list to extract seconds for each category
+            for item in data_list:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                value = safe_float(item.get("value"))
+                if name == "uptime":
+                    uptime = value
+                elif name == "downtime":
+                    downtime = value
+                elif name == "noData":
+                    no_data = value
+
+            # Calculate uptime ratios if we have data
+            if uptime is not None or downtime is not None or no_data is not None:
+                # Ratio of entire period (including noData)
+                total = (uptime or 0.0) + (downtime or 0.0) + (no_data or 0.0)
+                if total > 0:
+                    uptime_ratio_total = ((uptime or 0.0) / total) * 100.0
+
+                # Ratio of measured data only (excluding noData)
+                actual_total = (uptime or 0.0) + (downtime or 0.0)
+                if actual_total > 0:
+                    uptime_ratio_actual = ((uptime or 0.0) / actual_total) * 100.0
+
+        if data_list is None and err:
+            return {
+                "status_code": resp.status,
+                "uptime": None,
+                "downtime": None,
+                "noData": None,
+                "uptime_ratio_total": None,
+                "uptime_ratio_actual": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+        return {
+            "status_code": resp.status,
+            "uptime": uptime,
+            "downtime": downtime,
+            "noData": no_data,
+            "uptime_ratio_total": uptime_ratio_total,
+            "uptime_ratio_actual": uptime_ratio_actual,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_revenue(
+        self,
+        asset_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> RevenueResult:
+        """Fetch revenue summary for the last invoice of an asset.
+
+        Args:
+            asset_id: Asset identifier. Defaults to `self.asset_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            RevenueResult: `{status_code, revenue, json, text, error}`.
+
+        Raises:
+            ValueError: If asset id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aid = asset_id or self.asset_id
+        if not aid:
+            _LOGGER.error("Cannot fetch revenue: asset_id not set")
+            raise ValueError("asset_id is required for revenue fetch")
+        path = f"/asset/{aid}/revenue"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="revenue",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "revenue": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        revenue: Optional[Revenue] = parse_revenue(data_dict)
+        if revenue is None and raise_on_error:
+            msg = "Unexpected response format for revenue (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "revenue": revenue,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
+    async def async_fetch_asset_owner(
+        self,
+        asset_owner_id: Optional[int] = None,
+        *,
+        raise_on_error: bool = True,
+        retry_5xx_attempts: Optional[int] = None,
+        timeout_total: Optional[float] = None,
+    ) -> AssetOwnerDetailsResult:
+        """Fetch asset owner details including installer, distributor, asset, and compensation.
+
+        Args:
+            asset_owner_id: Asset owner identifier. Defaults to `self.asset_owner_id`.
+            raise_on_error: If True, raises `ApiError` on invalid payload/HTTP errors.
+            retry_5xx_attempts: Optional number of retries for 5xx.
+            timeout_total: Optional total timeout override in seconds.
+
+        Returns:
+            AssetOwnerDetailsResult: `{status_code, details, json, text, error}`.
+
+        Raises:
+            ValueError: If asset owner id is not provided.
+            ApiError: If payload is not a dict (when `raise_on_error=True`).
+        """
+
+        aoid = asset_owner_id or self.asset_owner_id
+        if not aoid:
+            _LOGGER.error("Cannot fetch asset owner: asset_owner_id not set")
+            raise ValueError("asset_owner_id is required for asset owner fetch")
+        path = f"/asset-owner/{aoid}"
+        url = self._build_url(path)
+        resp, data, text = await self._request(
+            path,
+            raise_on_error=raise_on_error,
+            retry_5xx_attempts=retry_5xx_attempts,
+            timeout_total=timeout_total,
+        )
+
+        data_dict, err = ensure_dict(
+            data,
+            context="asset owner details",
+            status_code=resp.status,
+            url=url,
+            raise_on_error=raise_on_error,
+        )
+        if data_dict is None:
+            return {
+                "status_code": resp.status,
+                "details": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
+
+        details: Optional[AssetOwnerDetails] = parse_asset_owner_details(data_dict)
+        if details is None and raise_on_error:
+            msg = "Unexpected response format for asset owner details (missing or invalid id)"
+            _LOGGER.error(msg)
+            raise ApiError(msg, status_code=resp.status, url=url, payload=data_dict)
+        return {
+            "status_code": resp.status,
+            "details": details,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
+
     async def async_readout_sequence(
         self,
         asset_owner_id: Optional[int] = None,
@@ -799,7 +1312,7 @@ class AsyncFlowerhubClient:
             timeout_total: Optional total timeout override in seconds.
 
         Returns:
-            Dict[str, Any]: `{asset_owner_id, asset_id, with_asset_resp, asset_resp}`.
+            Dict[str, Any]: `{asset_owner_id, asset_id, with_asset_resp, asset_resp, uptime_pie_resp}`.
 
         Raises:
             ValueError: If asset owner id is not provided.
@@ -813,6 +1326,7 @@ class AsyncFlowerhubClient:
         _LOGGER.debug("Starting readout sequence for asset_owner_id %s", ao)
         with_resp = await self.async_fetch_asset_id(ao, raise_on_error=raise_on_error)
         asset_resp = None
+        uptime_pie_resp = None
         if self.asset_id:
             asset_resp = await self.async_fetch_asset(
                 self.asset_id,
@@ -821,6 +1335,14 @@ class AsyncFlowerhubClient:
                 timeout_total=timeout_total,
             )
             _LOGGER.debug("Readout sequence completed successfully")
+            try:
+                uptime_pie_resp = await self.async_fetch_uptime_pie(
+                    self.asset_id,
+                    raise_on_error=False,
+                    timeout_total=timeout_total,
+                )
+            except Exception as err:  # pragma: no cover - best effort; non-fatal
+                _LOGGER.debug("Uptime pie fetch skipped during readout: %s", err)
         else:
             _LOGGER.warning("Readout sequence incomplete: asset_id not found")
 
@@ -829,6 +1351,7 @@ class AsyncFlowerhubClient:
             "asset_id": self.asset_id,
             "with_asset_resp": with_resp,
             "asset_resp": asset_resp,
+            "uptime_pie_resp": uptime_pie_resp,
         }
 
     # helper to integrate with HA DataUpdateCoordinator is documented in README
@@ -839,7 +1362,7 @@ class AsyncFlowerhubClient:
         interval_seconds: float = 60.0,
         run_immediately: bool = False,
         on_update: Optional[Callable[[FlowerHubStatus], None]] = None,
-        result_queue: Optional["asyncio.Queue"] = None,
+        result_queue: Optional[asyncio.Queue] = None,
     ) -> asyncio.Task:
         """Start a background task that periodically fetches the asset.
 

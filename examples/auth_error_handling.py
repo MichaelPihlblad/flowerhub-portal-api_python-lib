@@ -1,8 +1,10 @@
 """Example: Handling authentication errors and automatic re-login.
 
 This example demonstrates how to use the AuthenticationError exception
-and on_auth_failed callback to detect when token refresh fails and
-re-authentication is required.
+and on_auth_failed callback to detect when:
+  - Login fails (invalid credentials - 401 response)
+  - Token refresh fails during subsequent API calls
+Re-authentication is then required in both cases.
 """
 
 import asyncio
@@ -13,15 +15,23 @@ from flowerhub_portal_api_client import AsyncFlowerhubClient, AuthenticationErro
 
 
 async def example_with_exception_handling():
-    """Example 1: Using try/except to catch AuthenticationError."""
+    """Example 1: Using try/except to catch AuthenticationError.
+
+    AuthenticationError can be raised during login (invalid credentials)
+    or during API calls (token refresh failed).
+    """
     username = "user@example.com"
     password = "password"
 
     async with aiohttp.ClientSession() as session:
         client = AsyncFlowerhubClient(session=session)
 
-        # Initial login
-        await client.async_login(username, password)
+        # Initial login - can raise AuthenticationError if credentials are invalid
+        try:
+            await client.async_login(username, password)
+        except AuthenticationError:
+            print("Login failed: Invalid credentials")
+            return
 
         try:
             # This will automatically retry with refresh token on 401
@@ -30,19 +40,26 @@ async def example_with_exception_handling():
         except AuthenticationError:
             print("Token refresh failed, re-authenticating...")
             # Re-login and retry
-            await client.async_login(username, password)
-            await client.async_fetch_asset_id()
+            try:
+                await client.async_login(username, password)
+                await client.async_fetch_asset_id()
+            except AuthenticationError:
+                print("Re-login failed: Credentials are no longer valid")
 
 
 async def example_with_callback():
-    """Example 2: Using callback for automatic re-authentication."""
+    """Example 2: Using callback for automatic re-authentication.
+
+    The callback is invoked when token refresh fails during API calls.
+    For login failures, you still need try/except.
+    """
     username = "user@example.com"
     password = "password"
     needs_reauth = {"flag": False}
 
     def auth_failed_callback():
-        """Called when token refresh fails."""
-        print("Authentication failed, setting re-auth flag")
+        """Called when token refresh fails during API calls."""
+        print("Token refresh failed, setting re-auth flag")
         needs_reauth["flag"] = True
 
     async with aiohttp.ClientSession() as session:
@@ -50,8 +67,12 @@ async def example_with_callback():
             session=session, on_auth_failed=auth_failed_callback
         )
 
-        # Initial login
-        await client.async_login(username, password)
+        # Initial login - wrap in try/except for login failures
+        try:
+            await client.async_login(username, password)
+        except AuthenticationError:
+            print("Login failed: Invalid credentials")
+            return
 
         try:
             await client.async_fetch_asset_id()
@@ -59,9 +80,12 @@ async def example_with_callback():
             # Callback was already invoked
             if needs_reauth["flag"]:
                 print("Re-authenticating due to callback signal")
-                await client.async_login(username, password)
-                needs_reauth["flag"] = False
-                await client.async_fetch_asset_id()
+                try:
+                    await client.async_login(username, password)
+                    needs_reauth["flag"] = False
+                    await client.async_fetch_asset_id()
+                except AuthenticationError:
+                    print("Re-login failed: Credentials are no longer valid")
 
 
 async def home_assistant_pattern():
@@ -69,6 +93,9 @@ async def home_assistant_pattern():
 
     In Home Assistant, you would typically use this pattern in your
     DataUpdateCoordinator._async_update_data method.
+
+    Note: Wrap async_login() in try/except to catch both login failures
+    and token refresh failures.
     """
     username = "user@example.com"
     password = "password"
@@ -90,8 +117,14 @@ async def home_assistant_pattern():
 
         client = AsyncFlowerhubClient(session=session, on_auth_failed=request_reauth)
 
-        # Initial login
-        await client.async_login(username, password)
+        # Initial login - wrap in try/except for login failures
+        try:
+            await client.async_login(username, password)
+        except AuthenticationError:
+            print("Initial login failed: Invalid credentials")
+            # Signal reauth is needed
+            request_reauth()
+            return
 
         # In your coordinator update loop
         while True:
@@ -109,8 +142,17 @@ async def home_assistant_pattern():
                     # In HA, this would raise ConfigEntryAuthFailed
                     # which triggers the reauth flow UI
                     break
-                # Otherwise re-login and retry
-                await client.async_login(username, password)
+                # Otherwise re-login and retry (token refresh failed)
+                try:
+                    await client.async_login(username, password)
+                    # Retry the data fetch
+                    data = await client.async_readout_sequence()
+                    print(f"Fetched data after re-login: {data}")
+                    reauth_needed["flag"] = False
+                except AuthenticationError:
+                    print("Re-login failed: Credentials are no longer valid")
+                    request_reauth()
+                    break
 
             # Wait before next update
             await asyncio.sleep(60)

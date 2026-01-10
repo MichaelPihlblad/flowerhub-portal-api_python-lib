@@ -80,6 +80,41 @@ Refresh the access token using the refresh token cookie.
 
 ## Asset Owner Endpoints
 
+### GET /asset-owner/{assetOwnerId}
+Get complete asset owner details including installer, distributor, asset, and compensation information.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "firstName": <string>,
+  "lastName": <string>,
+  "installer": {
+    "id": <number>,
+    "name": <string>
+  },
+  "distributor": {
+    "id": <number>,
+    "name": <string>
+  },
+  "asset": {
+    "id": <number>,
+    "serialNumber": <string>,
+    "assetModel": {
+      "id": <number>,
+      "name": <string>,
+      "manufacturer": <string>
+    }
+  },
+  "compensation": {
+    "status": <string>,
+    "message": <string>
+  },
+  "bessCompensationStartDate": <string>
+}
+```
+Notes: `compensation.status` is typically "Qualified"; dates are in ISO format (YYYY-MM-DD).
+
 ### GET /asset-owner/{assetOwnerId}/withAssetId
 Get asset owner information including associated asset ID.
 
@@ -161,6 +196,37 @@ Notes: IDs/ocr/site_id are numeric strings; monetary and volume fields arrive as
 The async client returns the parsed list under the `invoices` key as `Invoice` dataclasses (with `InvoiceLine` children).
 
 ### GET /asset-owner/{assetOwnerId}/consumption
+### GET /asset-owner/{assetOwnerId}/profile
+Fetch profile details for the specified asset owner.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "firstName": <string>,
+  "lastName": <string>,
+  "mainEmail": <string>,
+  "contactEmail": <string|null>,
+  "phone": <string>,
+  "address": {
+    "street": <string>,
+    "postalCode": <string>,
+    "city": <string>
+  },
+  "accountStatus": <string>,
+  "installer": {
+    "id": <number>,
+    "name": <string>,
+    "address": {
+      "street": <string>,
+      "postalCode": <string>,
+      "city": <string>
+    }
+  }
+}
+```
+Notes: `id` equals the asset owner id; typical `accountStatus` is "Verified".
+
 Fetch consumption data for the specified asset owner.
 
 **Response:**
@@ -191,6 +257,20 @@ Array of historical readings and calculated values keyed by invoiced month:
 Notes: `site_id` is a numerical string; `valid_from/valid_to` and `invoiced_month` are date strings (YYYY-MM-DD); `type` is a label (e.g., "Reading", "Calculated").
 
 ## Asset Endpoints
+
+### GET /asset/{assetId}/revenue
+Fetch revenue summary for the asset's last invoice.
+
+**Response:**
+```json
+{
+  "id": <number>,
+  "minAvailablePower": <number>,
+  "compensation": <number>,
+  "compensationPerKW": <number>
+}
+```
+Notes: `minAvailablePower` is in kW; compensation fields are numeric and represent the last invoice’s revenue values.
 
 ### GET /asset/{assetId}
 Get detailed information about a specific asset including hardware specifications and status.
@@ -227,6 +307,47 @@ Get detailed information about a specific asset including hardware specification
   "isInstalled": <boolean>
 }
 ```
+
+### GET /asset-uptime/available-months/{assetId}
+List months for which uptime info is available for the asset.
+
+**Response:**
+An array of objects, one per available month:
+
+```json
+[
+  {"value": <string>, "label": <string>}
+]
+```
+Notes: `value` is in `YYYY-MM` format (e.g., "2025-03"); `label` is a human-readable month name and year (e.g., "March 2025"). Uptime measurement appears to start around March 2025, and the last element is the current month.
+
+### GET /asset-uptime/bar-chart/history/{assetId}
+List monthly uptime ratios (percent) per month for the asset.
+
+**Response:**
+An array of objects:
+
+```json
+[
+  {"date": <string>, "uptime": <number>}
+]
+```
+Notes: `date` is in `YYYY-MM` format; `uptime` is a percentage (0–100). Values may vary by month; examples include values like 100, 99, 92.
+
+### GET /asset-uptime/pie-chart/{assetId}?period=YYYY-MM
+Get uptime distribution (in seconds) for the specified period.
+
+**Response:**
+An array of objects:
+
+```json
+[
+  {"name": "uptime", "value": <number>},
+  {"name": "downtime", "value": <number>},
+  {"name": "noData", "value": <number>}
+]
+```
+Notes: `period` is required and must be in `YYYY-MM` format. `value` is measured in seconds for each category.
 
 
 ## System Notification Endpoints

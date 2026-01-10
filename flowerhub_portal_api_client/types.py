@@ -90,6 +90,97 @@ class AssetOwner:
 
 
 @dataclass
+class SimpleInstaller:
+    """Minimal installer info (id and name only)."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class SimpleDistributor:
+    """Minimal distributor info (id and name only)."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class AssetModel:
+    """Asset model with manufacturer info."""
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+    manufacturer: Optional[str] = None
+
+
+@dataclass
+class AssetInfo:
+    """Asset information with serial number and model."""
+
+    id: Optional[int] = None
+    serialNumber: Optional[str] = None
+    assetModel: AssetModel = field(default_factory=AssetModel)
+
+
+@dataclass
+class Compensation:
+    """Compensation status and message."""
+
+    status: Optional[str] = None
+    message: Optional[str] = None
+
+
+@dataclass
+class AssetOwnerDetails:
+    """Complete asset owner details.
+
+    Mirrors the response of GET /asset-owner/{assetOwnerId}.
+    """
+
+    id: int
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    installer: SimpleInstaller = field(default_factory=SimpleInstaller)
+    distributor: SimpleDistributor = field(default_factory=SimpleDistributor)
+    asset: AssetInfo = field(default_factory=AssetInfo)
+    compensation: Compensation = field(default_factory=Compensation)
+    bessCompensationStartDate: Optional[str] = None
+
+
+@dataclass
+class PostalAddress:
+    street: Optional[str] = None
+    postalCode: Optional[str] = None
+    city: Optional[str] = None
+
+
+@dataclass
+class InstallerInfo:
+    id: Optional[int] = None
+    name: Optional[str] = None
+    address: PostalAddress = field(default_factory=PostalAddress)
+
+
+@dataclass
+class AssetOwnerProfile:
+    """Profile details for an asset owner.
+
+    Mirrors the response of GET /asset-owner/{assetOwnerId}/profile.
+    """
+
+    id: int
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    mainEmail: Optional[str] = None
+    contactEmail: Optional[str] = None
+    phone: Optional[str] = None
+    address: PostalAddress = field(default_factory=PostalAddress)
+    accountStatus: Optional[str] = None
+    installer: InstallerInfo = field(default_factory=InstallerInfo)
+
+
+@dataclass
 class AgreementState:
     stateCategory: Optional[str] = None
     stateId: Optional[int] = None
@@ -152,37 +243,91 @@ class ConsumptionRecord:
     type_id: Optional[int]
 
 
-class AssetIdResult(TypedDict):
+@dataclass
+class UptimeMonth:
+    """Available uptime month item.
+
+    Represents a single month entry with machine-readable value and human label.
+    """
+
+    value: str
+    label: str
+
+
+@dataclass
+class UptimeHistoryEntry:
+    """Monthly uptime ratio entry.
+
+    Represents uptime ratio (percentage) for a given month.
+    """
+
+    date: str
+    uptime: Optional[float]
+
+
+@dataclass
+class Revenue:
+    """Revenue summary for the last invoice of an asset.
+
+    Mirrors GET /asset/{assetId}/revenue.
+    """
+
+    id: Optional[int] = None
+    minAvailablePower: Optional[float] = None
+    compensation: Optional[float] = None
+    compensationPerKW: Optional[float] = None
+
+
+class StandardResult(TypedDict):
+    """Base result with common fields returned by most endpoints.
+
+    This serves as a structural baseline to make responses more consistent
+    without removing endpoint-specific parsed data.
+
+    Fields:
+    - status_code: HTTP status code
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class AssetIdResult(StandardResult):
     """Result for asset ID discovery.
 
     Fields:
     - status_code: HTTP status code
     - asset_id: Parsed integer asset id or None
+    - json: Raw response payload
+    - text: Raw response text
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     asset_id: Optional[int]
-    error: Optional[str]
 
 
-class AssetFetchResult(TypedDict):
+class AssetFetchResult(StandardResult):
     """Result for asset fetch.
 
     Fields:
     - status_code: HTTP status code
     - asset_info: Raw asset payload dict or None
     - flowerhub_status: Parsed `FlowerHubStatus` or None
+    - json: Raw response payload
+    - text: Raw response text
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     asset_info: Optional[Dict[str, Any]]
     flowerhub_status: Optional[FlowerHubStatus]
-    error: Optional[str]
 
 
-class AgreementResult(TypedDict):
+class AgreementResult(StandardResult):
     """Result for electricity agreement fetch.
 
     Fields:
@@ -193,14 +338,10 @@ class AgreementResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     agreement: Optional[ElectricityAgreement]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class InvoicesResult(TypedDict):
+class InvoicesResult(StandardResult):
     """Result for invoices fetch.
 
     Fields:
@@ -211,14 +352,10 @@ class InvoicesResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     invoices: Optional[List[Invoice]]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class ConsumptionResult(TypedDict):
+class ConsumptionResult(StandardResult):
     """Result for consumption fetch.
 
     Fields:
@@ -229,11 +366,103 @@ class ConsumptionResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     consumption: Optional[List[ConsumptionRecord]]
-    json: Any
-    text: str
-    error: Optional[str]
+
+
+class UptimeAvailableMonthsResult(StandardResult):
+    """Result for uptime available months fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - months: List of parsed `UptimeMonth` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    months: Optional[List[UptimeMonth]]
+
+
+class UptimeHistoryResult(StandardResult):
+    """Result for uptime monthly ratio history fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - history: List of parsed `UptimeHistoryEntry` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    history: Optional[List[UptimeHistoryEntry]]
+
+
+class UptimePieResult(StandardResult):
+    """Result for uptime pie-chart endpoint.
+
+    Fields:
+    - status_code: HTTP status code
+    - uptime: Uptime duration in seconds, or None
+    - downtime: Downtime duration in seconds, or None
+    - noData: No-data duration in seconds, or None
+    - uptime_ratio_total: Uptime percentage (0-100) of entire period including noData, or None
+    - uptime_ratio_actual: Uptime percentage (0-100) of measured data only (excludes noData), or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    uptime: Optional[float]
+    downtime: Optional[float]
+    noData: Optional[float]
+    uptime_ratio_total: Optional[float]
+    uptime_ratio_actual: Optional[float]
+
+
+class RevenueResult(StandardResult):
+    """Result for asset revenue fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - revenue: Parsed `Revenue` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    revenue: Optional[Revenue]
+
+
+class ProfileResult(StandardResult):
+    """Result for asset owner profile fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - profile: Parsed `AssetOwnerProfile` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    profile: Optional[AssetOwnerProfile]
+
+
+class AssetOwnerDetailsResult(StandardResult):
+    """Result for asset owner details fetch.
+
+    Fields:
+    - status_code: HTTP status code
+    - details: Parsed `AssetOwnerDetails` or None
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    details: Optional[AssetOwnerDetails]
+
+
+# Type alias for system notification endpoint which returns only the standard envelope
+SystemNotificationResult = StandardResult
 
 
 __all__ = [
@@ -250,9 +479,27 @@ __all__ = [
     "InvoiceLine",
     "Invoice",
     "ConsumptionRecord",
+    "UptimeMonth",
+    "UptimeHistoryEntry",
+    "Revenue",
+    "PostalAddress",
+    "InstallerInfo",
+    "AssetOwnerProfile",
+    "SimpleInstaller",
+    "SimpleDistributor",
+    "AssetModel",
+    "AssetInfo",
+    "Compensation",
+    "AssetOwnerDetails",
     "AssetIdResult",
     "AssetFetchResult",
     "AgreementResult",
     "InvoicesResult",
     "ConsumptionResult",
+    "ProfileResult",
+    "AssetOwnerDetailsResult",
+    "UptimeAvailableMonthsResult",
+    "UptimeHistoryResult",
+    "UptimePieResult",
+    "RevenueResult",
 ]

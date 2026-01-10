@@ -7,6 +7,7 @@ client so it remains a small, dependency-free smoke test.
 import asyncio
 import sys
 from pathlib import Path
+from typing import cast
 
 # Add parent directory to path so we can import flowerhub_portal_api_client
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,7 +30,7 @@ class DummyResp:
 
 
 class DummySession:
-    def __init__(self, asset_owner_id=31, asset_id=74):
+    def __init__(self, asset_owner_id=99, asset_id=166):
         self.asset_owner_id = asset_owner_id
         self.asset_id = asset_id
         self.cookies = {}
@@ -95,7 +96,7 @@ def run_demo():
 
     async def _run():
         sess = DummySession(asset_owner_id, asset_id)
-        client = AsyncFlowerhubClient(session=sess)
+        client = AsyncFlowerhubClient(session=cast(object, sess))
         await client.async_login("user@example.com", "secret")
         print("Login asset_owner_id:", client.asset_owner_id)
         ro = await client.async_readout_sequence()
