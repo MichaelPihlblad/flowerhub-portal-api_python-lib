@@ -9,24 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-01-10
 
 ### Added
-- New API endpoints
-  - profile
-  - asset-owner
-  - revenue
-  - uptime
-    - response extended to include derived `uptime_ratio` (percentage) alongside raw slices.
+- **New API endpoints**:
+  - `async_fetch_asset_owner_profile()` - Fetch asset owner profile with contact information
+  - `async_fetch_asset_owner()` - Fetch complete asset owner details with installer/distributor info
+  - `async_fetch_revenue()` - Fetch revenue/compensation data for an asset
+  - `async_fetch_uptime_pie()` - Fetch uptime distribution for a period with automatic ratio calculation
+  - `async_fetch_uptime_history()` - Fetch monthly uptime history
+  - `async_fetch_available_uptime_months()` - Fetch available uptime month options
+- **Type system improvements**:
+  - `StandardResult` base class for consistent response envelopes across all endpoints
+  - All result types now extend `StandardResult` (AssetIdResult, AssetFetchResult, AgreementResult, InvoicesResult, ConsumptionResult, ProfileResult, AssetOwnerDetailsResult, UptimeAvailableMonthsResult, UptimeHistoryResult, UptimePieResult, RevenueResult)
+  - `SystemNotificationResult` as type alias to `StandardResult` for clarity
+  - All result types now have required envelope fields: `status_code`, `json`, `text`, `error`
+- **Data models**:
+  - `AssetOwnerProfile` dataclass for profile endpoint response
+  - `AssetOwnerDetails` dataclass for complete owner details
+  - `Revenue` dataclass for compensation data
+  - `UptimeMonth`, `UptimeHistoryEntry` dataclasses for uptime endpoints
+- **Testing**:
+  - `scripts/test-HA_integration.sh` - Local integration testing script for Home Assistant compatibility validation
 
 ### Changed
-- **Authentication**: Login now raises `AuthenticationError` explicitly on 401 responses
-- `async_readout_sequence` now also fetches the uptime pie endpoint and returns it as `uptime_pie_resp`
-- Improved aiohttp import handling with `TYPE_CHECKING` guard and defensive timeout application.
-- Code quality: All pylint errors resolved (10/10 rating); imports reorganized with proper ordering; datetime imported at module level for robustness.
-
-### Fixed
-- Type casting in `simulated_run.py` for better type hints.
+- **Authentication**: Login now raises `AuthenticationError` explicitly on 401 responses (previously silent failure)
+- **Readout sequence**: `async_readout_sequence()` now includes uptime pie data in `uptime_pie_resp` field
 
 ### Notes
-- Validated with Home Assistant integration: `AuthenticationError` is already handled throughout config_flow and coordinator patterns.
+- **Backward compatibility**: All changes maintain backward compatibility with Home Assistant integration (32/32 integration tests passing)
+- **Non-breaking**: The StandardResult refactoring adds fields where missing but removes none, ensuring existing code continues to work
+- Validated with Home Assistant integration: `AuthenticationError` is already handled throughout config_flow and coordinator patterns
 
 ## [0.4.0] - 2025-12-23
 

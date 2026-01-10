@@ -8,14 +8,15 @@
 A lightweight, Python client for the [Flowerhub portal](https://portal.flowerhub.se) API with cookie-based JWT authentication.
 
 **Related Projects:**
-- [Home Assistant Custom Integration](https://github.com/MichaelPihlblad/homeassistant-flowerhub)
+- [Home Assistant Custom Integration](https://github.com/MichaelPihlblad/homeassistant-flowerhub)  (known consumer)
 
 ## Features
 
-- Cookie-based JWT authentication with automatic token refresh
-- Async/await support via `aiohttp`
-- Client provides asset, consumption, and invoice data from API endpoints
-- Designed for Home Assistant integrations and similar use cases
+- **Authentication**: Cookie-based JWT with automatic token refresh and `AuthenticationError` on login failure
+- **Async/await**: Full async support via `aiohttp` with configurable timeouts and retries
+- **API coverage**: 12+ endpoints including assets, consumption, invoices, uptime metrics, revenue, and profiles
+- **Type-safe**: Fully typed with `TypedDict` result types extending `StandardResult` base class
+- Designed for Home Assistant integrations and similar use cases with robust error handling
 
 
 ## Installation
@@ -110,23 +111,57 @@ pip install -r dev-requirements.txt
 
 ### Public Methods (async)
 
-- `async_login(..)`
-- `async_fetch_asset_id(...)`
-- `async_fetch_asset(...)`
-- `async_readout_sequence(...)` - Fetches assetID then asset info
-- `async_fetch_electricity_agreement(...)`
-- `async_fetch_invoices(...)`
-- `async_fetch_consumption(...)`
-- `async_fetch_system_notification(...)` - Unclear purpose, provides some status for flower/zavann systems, possibly for the user. Flower is electrical energy provider, Zavann seems to be the billing system.
-- `start_periodic_asset_fetch(...)`
-- `stop_periodic_asset_fetch(...)`
-- `is_asset_fetch_running(...)`
+**Authentication:**
+- `async_login(username, password)` - Authenticate and establish session
+
+**Core Data Fetching:**
+- `async_fetch_asset_id()` - Discover asset ID for the authenticated user
+- `async_fetch_asset()` - Fetch asset details and FlowerHub status
+- `async_readout_sequence()` - Convenient readout of: asset ID → asset info → uptime pie
+
+**Financial Data:**
+- `async_fetch_invoices()` - Fetch billing invoices
+- `async_fetch_consumption()` - Fetch consumption records
+- `async_fetch_revenue()` - Fetch revenue/compensation data
+
+**Uptime Metrics:**
+- `async_fetch_uptime_pie(period=None)` - Uptime distribution with automatic ratio calculation
+- `async_fetch_uptime_history()` - Monthly uptime percentages
+- `async_fetch_available_uptime_months()` - Available month options for uptime queries
+
+**User & System:**
+- `async_fetch_asset_owner_profile()` - Fetch owner profile with contact info
+- `async_fetch_asset_owner()` - Fetch complete owner details (installer/distributor)
+- `async_fetch_electricity_agreement()` - Fetch consumption/production agreement states
+- `async_fetch_system_notification()` - System-level notifications (Flower/Zavann status)
+
+**Lifecycle & Monitoring:**
+- `start_periodic_asset_fetch(interval_seconds, ...)` - Start background polling
+- `stop_periodic_asset_fetch()` - Stop background polling
+- `is_asset_fetch_running()` - Check polling status
 
 ### Data Models and Types
 
-- Exceptions: `AuthenticationError`, `ApiError`.
-- Status/model classes: `FlowerHubStatus`, `ElectricityAgreement`, `Invoice`, `ConsumptionRecord`, etc. (see `types.py`).
-- Typed results: `AssetIdResult`, `AssetFetchResult`, `AgreementResult`, `InvoicesResult`, `ConsumptionResult`.
+**Exceptions:**
+- `AuthenticationError` - Raised on 401 authentication failures after refresh retry
+- `ApiError` - Raised for HTTP errors or validation issues (includes `status_code`, `url`, `payload`)
+
+**Result Types (all extend `StandardResult`):**
+- Base: `StandardResult` - Common envelope with `status_code`, `json`, `text`, `error`
+- Asset: `AssetIdResult`, `AssetFetchResult`
+- Financial: `InvoicesResult`, `ConsumptionResult`, `RevenueResult`
+- Uptime: `UptimeAvailableMonthsResult`, `UptimeHistoryResult`, `UptimePieResult`
+- User: `ProfileResult`, `AssetOwnerDetailsResult`
+- Other: `AgreementResult`, `SystemNotificationResult` (alias to StandardResult)
+
+**Data Classes:**
+- Status: `FlowerHubStatus` (device status with age tracking)
+- Financial: `Invoice`, `InvoiceLine`, `ConsumptionRecord`, `Revenue`
+- Uptime: `UptimeMonth`, `UptimeHistoryEntry`
+- User: `AssetOwnerProfile`, `AssetOwnerDetails`, `SimpleInstaller`, `SimpleDistributor`
+- Other: `ElectricityAgreement`, `AgreementState`, `Asset`, `Inverter`, `Battery`
+
+See [types.py](flowerhub_portal_api_client/types.py) for complete type definitions.
 
 ### Options, Callbacks, and Lifecycle
 

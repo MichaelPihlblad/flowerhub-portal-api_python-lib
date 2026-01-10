@@ -266,70 +266,6 @@ class UptimeHistoryEntry:
 
 
 @dataclass
-class UptimePieSlice:
-    """Pie slice for uptime distribution over a period.
-
-    `name` can be values like "uptime", "downtime", "noData".
-    `value` represents seconds in the period.
-    """
-
-    name: str
-    value: Optional[float]
-
-    @staticmethod
-    def calculate_uptime_ratio(slices: List["UptimePieSlice"]) -> Optional[float]:
-        """Calculate uptime ratio (percentage) from a list of slices.
-
-        Args:
-            slices: List of UptimePieSlice objects.
-
-        Returns:
-            Uptime percentage (0-100) or None if no data available.
-
-        Example:
-            >>> ratio = UptimePieSlice.calculate_uptime_ratio(result["slices"])
-            >>> print(f"Uptime: {ratio:.1f}%")
-        """
-        if not slices:
-            return None
-
-        uptime = downtime = no_data = 0.0
-        for slice_item in slices:
-            if slice_item.value is None:
-                continue
-            if slice_item.name == "uptime":
-                uptime = slice_item.value
-            elif slice_item.name == "downtime":
-                downtime = slice_item.value
-            elif slice_item.name == "noData":
-                no_data = slice_item.value
-
-        total = uptime + downtime + no_data
-        if total == 0:
-            return None
-        return (uptime / total) * 100.0
-
-    @staticmethod
-    def get_slice_value(slices: List["UptimePieSlice"], name: str) -> Optional[float]:
-        """Get the value (seconds) for a specific slice name.
-
-        Args:
-            slices: List of UptimePieSlice objects.
-            name: Slice name ("uptime", "downtime", or "noData").
-
-        Returns:
-            Value in seconds or None if not found.
-
-        Example:
-            >>> uptime_sec = UptimePieSlice.get_slice_value(result["slices"], "uptime")
-        """
-        for slice_item in slices:
-            if slice_item.name == name:
-                return slice_item.value
-        return None
-
-
-@dataclass
 class Revenue:
     """Revenue summary for the last invoice of an asset.
 
@@ -342,37 +278,56 @@ class Revenue:
     compensationPerKW: Optional[float] = None
 
 
-class AssetIdResult(TypedDict):
+class StandardResult(TypedDict):
+    """Base result with common fields returned by most endpoints.
+
+    This serves as a structural baseline to make responses more consistent
+    without removing endpoint-specific parsed data.
+
+    Fields:
+    - status_code: HTTP status code
+    - json: Raw response payload
+    - text: Raw response text
+    - error: Error message when not raising, else None
+    """
+
+    status_code: int
+    json: Any
+    text: str
+    error: Optional[str]
+
+
+class AssetIdResult(StandardResult):
     """Result for asset ID discovery.
 
     Fields:
     - status_code: HTTP status code
     - asset_id: Parsed integer asset id or None
+    - json: Raw response payload
+    - text: Raw response text
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     asset_id: Optional[int]
-    error: Optional[str]
 
 
-class AssetFetchResult(TypedDict):
+class AssetFetchResult(StandardResult):
     """Result for asset fetch.
 
     Fields:
     - status_code: HTTP status code
     - asset_info: Raw asset payload dict or None
     - flowerhub_status: Parsed `FlowerHubStatus` or None
+    - json: Raw response payload
+    - text: Raw response text
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     asset_info: Optional[Dict[str, Any]]
     flowerhub_status: Optional[FlowerHubStatus]
-    error: Optional[str]
 
 
-class AgreementResult(TypedDict):
+class AgreementResult(StandardResult):
     """Result for electricity agreement fetch.
 
     Fields:
@@ -383,14 +338,10 @@ class AgreementResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     agreement: Optional[ElectricityAgreement]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class InvoicesResult(TypedDict):
+class InvoicesResult(StandardResult):
     """Result for invoices fetch.
 
     Fields:
@@ -401,14 +352,10 @@ class InvoicesResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     invoices: Optional[List[Invoice]]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class ConsumptionResult(TypedDict):
+class ConsumptionResult(StandardResult):
     """Result for consumption fetch.
 
     Fields:
@@ -419,14 +366,10 @@ class ConsumptionResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     consumption: Optional[List[ConsumptionRecord]]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class UptimeAvailableMonthsResult(TypedDict):
+class UptimeAvailableMonthsResult(StandardResult):
     """Result for uptime available months fetch.
 
     Fields:
@@ -437,14 +380,10 @@ class UptimeAvailableMonthsResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     months: Optional[List[UptimeMonth]]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class UptimeHistoryResult(TypedDict):
+class UptimeHistoryResult(StandardResult):
     """Result for uptime monthly ratio history fetch.
 
     Fields:
@@ -455,34 +394,30 @@ class UptimeHistoryResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     history: Optional[List[UptimeHistoryEntry]]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class UptimePieResult(TypedDict):
+class UptimePieResult(StandardResult):
     """Result for uptime pie-chart endpoint.
 
     Fields:
     - status_code: HTTP status code
-    - slices: List of parsed `UptimePieSlice` or None
+    - uptime: Uptime duration in seconds, or None
+    - downtime: Downtime duration in seconds, or None
+    - noData: No-data duration in seconds, or None
     - uptime_ratio: Derived uptime percentage (0-100) or None
     - json: Raw response payload
     - text: Raw response text
     - error: Error message when not raising, else None
     """
 
-    status_code: int
-    slices: Optional[List[UptimePieSlice]]
+    uptime: Optional[float]
+    downtime: Optional[float]
+    noData: Optional[float]
     uptime_ratio: Optional[float]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class RevenueResult(TypedDict):
+class RevenueResult(StandardResult):
     """Result for asset revenue fetch.
 
     Fields:
@@ -493,14 +428,10 @@ class RevenueResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     revenue: Optional[Revenue]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class ProfileResult(TypedDict):
+class ProfileResult(StandardResult):
     """Result for asset owner profile fetch.
 
     Fields:
@@ -511,14 +442,10 @@ class ProfileResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     profile: Optional[AssetOwnerProfile]
-    json: Any
-    text: str
-    error: Optional[str]
 
 
-class AssetOwnerDetailsResult(TypedDict):
+class AssetOwnerDetailsResult(StandardResult):
     """Result for asset owner details fetch.
 
     Fields:
@@ -529,11 +456,11 @@ class AssetOwnerDetailsResult(TypedDict):
     - error: Error message when not raising, else None
     """
 
-    status_code: int
     details: Optional[AssetOwnerDetails]
-    json: Any
-    text: str
-    error: Optional[str]
+
+
+# Type alias for system notification endpoint which returns only the standard envelope
+SystemNotificationResult = StandardResult
 
 
 __all__ = [
@@ -552,7 +479,6 @@ __all__ = [
     "ConsumptionRecord",
     "UptimeMonth",
     "UptimeHistoryEntry",
-    "UptimePieSlice",
     "Revenue",
     "PostalAddress",
     "InstallerInfo",

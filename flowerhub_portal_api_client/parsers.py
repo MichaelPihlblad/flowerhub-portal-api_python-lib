@@ -26,7 +26,6 @@ from .types import (
     SimpleInstaller,
     UptimeHistoryEntry,
     UptimeMonth,
-    UptimePieSlice,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -429,26 +428,6 @@ def parse_uptime_history(data: Any) -> Optional[List[UptimeHistoryEntry]]:
     return entries
 
 
-def parse_uptime_pie(data: Any) -> Optional[List[UptimePieSlice]]:
-    """Parse uptime pie-chart slices list.
-
-    Returns None if input is not a list.
-    """
-    if not isinstance(data, list):
-        return None
-    slices: List[UptimePieSlice] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        slices.append(
-            UptimePieSlice(
-                name=str(item.get("name", "")),
-                value=safe_float(item.get("value")),
-            )
-        )
-    return slices
-
-
 __all__ = [
     "safe_int",
     "safe_float",
@@ -475,5 +454,4 @@ __all__ = [
     "parse_revenue",
     "parse_uptime_available_months",
     "parse_uptime_history",
-    "parse_uptime_pie",
 ]

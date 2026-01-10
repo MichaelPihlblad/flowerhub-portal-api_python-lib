@@ -31,7 +31,6 @@ from .parsers import (
     parse_revenue,
     parse_uptime_available_months,
     parse_uptime_history,
-    parse_uptime_pie,
     require_field,
     safe_float,
     safe_int,
@@ -60,7 +59,6 @@ from .types import (
     UptimeHistoryResult,
     UptimeMonth,
     UptimePieResult,
-    UptimePieSlice,
 )
 
 if TYPE_CHECKING:
@@ -494,7 +492,7 @@ class AsyncFlowerhubClient:
             raise ValueError("asset_owner_id is required for asset id fetch")
         path = f"/asset-owner/{owner_id}/withAssetId"
         url = self._build_url(path)
-        resp, data, _ = await self._request(path, raise_on_error=raise_on_error)
+        resp, data, text = await self._request(path, raise_on_error=raise_on_error)
 
         data_dict, err = ensure_dict(
             data,
@@ -504,7 +502,13 @@ class AsyncFlowerhubClient:
             raise_on_error=raise_on_error,
         )
         if data_dict is None:
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         asset_id_value, err = require_field(
             data_dict,
@@ -514,7 +518,13 @@ class AsyncFlowerhubClient:
             raise_on_error=raise_on_error,
         )
         if asset_id_value is None:
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         asset_id_int, err = parse_asset_id_value(
             asset_id_value,
@@ -525,11 +535,23 @@ class AsyncFlowerhubClient:
         )
         if asset_id_int is None:
             self.asset_id = None
-            return {"status_code": resp.status, "asset_id": None, "error": err}
+            return {
+                "status_code": resp.status,
+                "asset_id": None,
+                "json": data,
+                "text": text,
+                "error": err,
+            }
 
         self.asset_id = asset_id_int
         _LOGGER.debug("Fetched asset_id: %s", self.asset_id)
-        return {"status_code": resp.status, "asset_id": self.asset_id, "error": None}
+        return {
+            "status_code": resp.status,
+            "asset_id": self.asset_id,
+            "json": data,
+            "text": text,
+            "error": None,
+        }
 
     async def async_fetch_asset(
         self,
@@ -560,7 +582,7 @@ class AsyncFlowerhubClient:
             raise ValueError("asset_id is required for asset fetch")
         path = f"/asset/{aid}"
         url = self._build_url(path)
-        resp, data, _ = await self._request(
+        resp, data, text = await self._request(
             path,
             raise_on_error=raise_on_error,
             retry_5xx_attempts=retry_5xx_attempts,
@@ -579,6 +601,8 @@ class AsyncFlowerhubClient:
                 "status_code": resp.status,
                 "asset_info": None,
                 "flowerhub_status": None,
+                "json": data,
+                "text": text,
                 "error": err,
             }
 
@@ -594,6 +618,8 @@ class AsyncFlowerhubClient:
                 "status_code": resp.status,
                 "asset_info": data_dict,
                 "flowerhub_status": None,
+                "json": data,
+                "text": text,
                 "error": err,
             }
 
@@ -608,6 +634,8 @@ class AsyncFlowerhubClient:
             "status_code": resp.status,
             "asset_info": self.asset_info,
             "flowerhub_status": self.flowerhub_status,
+            "json": data,
+            "text": text,
             "error": None,
         }
 
@@ -641,7 +669,7 @@ class AsyncFlowerhubClient:
             retry_5xx_attempts=retry_5xx_attempts,
             timeout_total=timeout_total,
         )
-        return {"status_code": resp.status, "json": data, "text": text}
+        return {"status_code": resp.status, "json": data, "text": text, "error": None}
 
     async def async_fetch_electricity_agreement(
         self,
@@ -1019,7 +1047,7 @@ class AsyncFlowerhubClient:
             "error": None,
         }
 
-    async def async_fetch_uptime_pie(
+    async def async_fetch_uptime_pie(  # pylint: disable=too-many-locals
         self,
         asset_id: Optional[int] = None,
         *,
@@ -1038,7 +1066,7 @@ class AsyncFlowerhubClient:
             timeout_total: Optional total timeout override in seconds.
 
         Returns:
-            UptimePieResult: `{status_code, slices, json, text, error}`.
+            UptimePieResult: `{status_code, uptime, downtime, noData, uptime_ratio, json, text, error}`.
 
         Raises:
             ValueError: If asset id is not provided or period format is invalid.
@@ -1077,14 +1105,39 @@ class AsyncFlowerhubClient:
             url=url,
             raise_on_error=raise_on_error,
         )
-        slices: Optional[List[UptimePieSlice]] = (
-            parse_uptime_pie(data_list) if data_list is not None else None
-        )
-        uptime_ratio = UptimePieSlice.calculate_uptime_ratio(slices) if slices else None
-        if slices is None and err:
+
+        # Extract individual slice values directly from raw JSON
+        uptime = None
+        downtime = None
+        no_data = None
+        uptime_ratio = None
+
+        if data_list is not None:
+            # Parse raw list to extract seconds for each category
+            for item in data_list:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                value = safe_float(item.get("value"))
+                if name == "uptime":
+                    uptime = value
+                elif name == "downtime":
+                    downtime = value
+                elif name == "noData":
+                    no_data = value
+
+            # Calculate uptime ratio if we have data
+            if uptime is not None or downtime is not None or no_data is not None:
+                total = (uptime or 0.0) + (downtime or 0.0) + (no_data or 0.0)
+                if total > 0:
+                    uptime_ratio = ((uptime or 0.0) / total) * 100.0
+
+        if data_list is None and err:
             return {
                 "status_code": resp.status,
-                "slices": None,
+                "uptime": None,
+                "downtime": None,
+                "noData": None,
                 "uptime_ratio": None,
                 "json": data,
                 "text": text,
@@ -1092,7 +1145,9 @@ class AsyncFlowerhubClient:
             }
         return {
             "status_code": resp.status,
-            "slices": slices,
+            "uptime": uptime,
+            "downtime": downtime,
+            "noData": no_data,
             "uptime_ratio": uptime_ratio,
             "json": data,
             "text": text,

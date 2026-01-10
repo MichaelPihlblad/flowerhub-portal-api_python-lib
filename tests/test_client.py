@@ -9,7 +9,6 @@ from flowerhub_portal_api_client.types import (
     Revenue,
     UptimeHistoryEntry,
     UptimeMonth,
-    UptimePieSlice,
 )
 
 
@@ -940,11 +939,11 @@ def test_fetch_uptime_pie_success():
     async def _run():
         result = await client.async_fetch_uptime_pie(period="2025-05")
         assert result["status_code"] == 200
-        slices = result["slices"]
-        assert slices is not None and len(slices) == 3
-        assert isinstance(slices[0], UptimePieSlice)
-        assert slices[0].name == "uptime"
-        assert slices[1].name == "downtime" and slices[1].value == 5000
+        assert result["uptime"] == 2500000
+        assert result["downtime"] == 5000
+        assert result["noData"] == 0
+        assert result["uptime_ratio"] is not None
+        assert result["uptime_ratio"] > 99.0  # Should be very high uptime
 
     run(_run())
 
@@ -965,7 +964,9 @@ def test_fetch_uptime_pie_non_list_payload():
             asset_id, period="2025-06", raise_on_error=False
         )
         assert result["status_code"] == 200
-        assert result["slices"] is None
+        assert result["uptime"] is None
+        assert result["downtime"] is None
+        assert result["noData"] is None
         assert isinstance(result["error"], str)
 
     run(_run())
@@ -1004,7 +1005,8 @@ def test_fetch_uptime_pie_missing_or_invalid_period():
         )
         result = await client.async_fetch_uptime_pie()
         assert result["status_code"] == 200
-        assert result["slices"] is not None
+        assert result["uptime"] == 2500000
+        assert result["uptime_ratio"] is not None
 
         # Invalid blank period should raise ValueError
         try:

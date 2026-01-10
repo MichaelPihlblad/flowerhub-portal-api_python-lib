@@ -32,7 +32,6 @@ from .types import (
     UptimeHistoryEntry,
     UptimeMonth,
     UptimePieResult,
-    UptimePieSlice,
     User,
 )
 
@@ -60,7 +59,6 @@ __all__ = [
     "UptimeMonth",
     "UptimeHistoryEntry",
     "UptimePieResult",
-    "UptimePieSlice",
     "AgreementState",
     "ElectricityAgreement",
     "ConsumptionRecord",
