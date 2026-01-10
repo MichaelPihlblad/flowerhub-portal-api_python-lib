@@ -5,6 +5,7 @@
 ```python
 import aiohttp
 from flowerhub_portal_api_client.async_client import AsyncFlowerhubClient
+from flowerhub_portal_api_client.types import UptimePieSlice
 
 async def main():
     async with aiohttp.ClientSession() as session:
@@ -12,6 +13,9 @@ async def main():
         await client.async_login("user@example.com", "password")
         result = await client.async_readout_sequence(asset_owner_id=42)
         print(result["asset_id"], client.flowerhub_status)
+        if result["uptime_pie_resp"]:
+            ratio = UptimePieSlice.calculate_uptime_ratio(result["uptime_pie_resp"]["slices"])
+            print(f"Uptime ratio: {ratio:.1f}%")
 ```
 
 ## Error Handling

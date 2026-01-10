@@ -6,12 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.0] - 2026-01-10
+
+### Added
+- New API endpoints
+  - profile
+  - asset-owner
+  - revenue
+  - uptime
+    - response extended to include derived `uptime_ratio` (percentage) alongside raw slices.
+
+### Changed
+- **Authentication**: Login now raises `AuthenticationError` explicitly on 401 responses
+- `async_readout_sequence` now also fetches the uptime pie endpoint and returns it as `uptime_pie_resp`
+- Improved aiohttp import handling with `TYPE_CHECKING` guard and defensive timeout application.
+- Code quality: All pylint errors resolved (10/10 rating); imports reorganized with proper ordering; datetime imported at module level for robustness.
+
+### Fixed
+- Type casting in `simulated_run.py` for better type hints.
+
+### Notes
+- Validated with Home Assistant integration: `AuthenticationError` is already handled throughout config_flow and coordinator patterns.
+
 ## [0.4.0] - 2025-12-23
 
 ### Changed
 - Improved code readability, renamed internal variables
 - Excluding test files from linting to focus on library code quality
 - Documentation revised
+
 ### Fixed
 - Mypy type error in `_should_retry_5xx` method: improved handling of `Optional[int]` comparison by explicitly checking for None
 

@@ -1,6 +1,6 @@
 [project]
 name = "flowerhub-portal-api-client"
-version = "0.4.0"
+version = "1.0.0"
 description = "Lightweight Flowerhub portal client (synchronous and async)"
 readme = "README.md"
 authors = [ { name="Michael Pihlblad", email="michael.pihlblad@bahnhof.se" } ]
