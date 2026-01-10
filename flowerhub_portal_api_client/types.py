@@ -276,6 +276,58 @@ class UptimePieSlice:
     name: str
     value: Optional[float]
 
+    @staticmethod
+    def calculate_uptime_ratio(slices: List["UptimePieSlice"]) -> Optional[float]:
+        """Calculate uptime ratio (percentage) from a list of slices.
+
+        Args:
+            slices: List of UptimePieSlice objects.
+
+        Returns:
+            Uptime percentage (0-100) or None if no data available.
+
+        Example:
+            >>> ratio = UptimePieSlice.calculate_uptime_ratio(result["slices"])
+            >>> print(f"Uptime: {ratio:.1f}%")
+        """
+        if not slices:
+            return None
+
+        uptime = downtime = no_data = 0.0
+        for slice_item in slices:
+            if slice_item.value is None:
+                continue
+            if slice_item.name == "uptime":
+                uptime = slice_item.value
+            elif slice_item.name == "downtime":
+                downtime = slice_item.value
+            elif slice_item.name == "noData":
+                no_data = slice_item.value
+
+        total = uptime + downtime + no_data
+        if total == 0:
+            return None
+        return (uptime / total) * 100.0
+
+    @staticmethod
+    def get_slice_value(slices: List["UptimePieSlice"], name: str) -> Optional[float]:
+        """Get the value (seconds) for a specific slice name.
+
+        Args:
+            slices: List of UptimePieSlice objects.
+            name: Slice name ("uptime", "downtime", or "noData").
+
+        Returns:
+            Value in seconds or None if not found.
+
+        Example:
+            >>> uptime_sec = UptimePieSlice.get_slice_value(result["slices"], "uptime")
+        """
+        for slice_item in slices:
+            if slice_item.name == name:
+                return slice_item.value
+        return None
+
 
 @dataclass
 class Revenue:
@@ -416,6 +468,7 @@ class UptimePieResult(TypedDict):
     Fields:
     - status_code: HTTP status code
     - slices: List of parsed `UptimePieSlice` or None
+    - uptime_ratio: Derived uptime percentage (0-100) or None
     - json: Raw response payload
     - text: Raw response text
     - error: Error message when not raising, else None
@@ -423,6 +476,7 @@ class UptimePieResult(TypedDict):
 
     status_code: int
     slices: Optional[List[UptimePieSlice]]
+    uptime_ratio: Optional[float]
     json: Any
     text: str
     error: Optional[str]

@@ -1080,10 +1080,12 @@ class AsyncFlowerhubClient:
         slices: Optional[List[UptimePieSlice]] = (
             parse_uptime_pie(data_list) if data_list is not None else None
         )
+        uptime_ratio = UptimePieSlice.calculate_uptime_ratio(slices) if slices else None
         if slices is None and err:
             return {
                 "status_code": resp.status,
                 "slices": None,
+                "uptime_ratio": None,
                 "json": data,
                 "text": text,
                 "error": err,
@@ -1091,6 +1093,7 @@ class AsyncFlowerhubClient:
         return {
             "status_code": resp.status,
             "slices": slices,
+            "uptime_ratio": uptime_ratio,
             "json": data,
             "text": text,
             "error": None,
@@ -1245,7 +1248,7 @@ class AsyncFlowerhubClient:
             timeout_total: Optional total timeout override in seconds.
 
         Returns:
-            Dict[str, Any]: `{asset_owner_id, asset_id, with_asset_resp, asset_resp}`.
+            Dict[str, Any]: `{asset_owner_id, asset_id, with_asset_resp, asset_resp, uptime_pie_resp}`.
 
         Raises:
             ValueError: If asset owner id is not provided.
@@ -1259,6 +1262,7 @@ class AsyncFlowerhubClient:
         _LOGGER.debug("Starting readout sequence for asset_owner_id %s", ao)
         with_resp = await self.async_fetch_asset_id(ao, raise_on_error=raise_on_error)
         asset_resp = None
+        uptime_pie_resp = None
         if self.asset_id:
             asset_resp = await self.async_fetch_asset(
                 self.asset_id,
@@ -1267,6 +1271,14 @@ class AsyncFlowerhubClient:
                 timeout_total=timeout_total,
             )
             _LOGGER.debug("Readout sequence completed successfully")
+            try:
+                uptime_pie_resp = await self.async_fetch_uptime_pie(
+                    self.asset_id,
+                    raise_on_error=False,
+                    timeout_total=timeout_total,
+                )
+            except Exception as err:  # pragma: no cover - best effort; non-fatal
+                _LOGGER.debug("Uptime pie fetch skipped during readout: %s", err)
         else:
             _LOGGER.warning("Readout sequence incomplete: asset_id not found")
 
@@ -1275,6 +1287,7 @@ class AsyncFlowerhubClient:
             "asset_id": self.asset_id,
             "with_asset_resp": with_resp,
             "asset_resp": asset_resp,
+            "uptime_pie_resp": uptime_pie_resp,
         }
 
     # helper to integrate with HA DataUpdateCoordinator is documented in README
