@@ -17,4 +17,3 @@ nav:
   - Library interface reference:
       - Async Client: interfaces/async_client.md
       - Types: interfaces/types.md
-      - Uptime Pie Types: interfaces/uptime_pie.md
