@@ -405,7 +405,8 @@ class UptimePieResult(StandardResult):
     - uptime: Uptime duration in seconds, or None
     - downtime: Downtime duration in seconds, or None
     - noData: No-data duration in seconds, or None
-    - uptime_ratio: Derived uptime percentage (0-100) or None
+    - uptime_ratio_total: Uptime percentage (0-100) of entire period including noData, or None
+    - uptime_ratio_actual: Uptime percentage (0-100) of measured data only (excludes noData), or None
     - json: Raw response payload
     - text: Raw response text
     - error: Error message when not raising, else None
@@ -414,7 +415,8 @@ class UptimePieResult(StandardResult):
     uptime: Optional[float]
     downtime: Optional[float]
     noData: Optional[float]
-    uptime_ratio: Optional[float]
+    uptime_ratio_total: Optional[float]
+    uptime_ratio_actual: Optional[float]
 
 
 class RevenueResult(StandardResult):

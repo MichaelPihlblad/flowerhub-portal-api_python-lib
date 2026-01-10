@@ -19,15 +19,17 @@ async def main():
         # Access uptime data (automatically included in readout)
         if result["uptime_pie_resp"]:
             pie = result["uptime_pie_resp"]
-            print(f"Uptime ratio: {pie['uptime_ratio']:.1f}%")
+            print(f"Uptime (total period): {pie['uptime_ratio_total']:.1f}%")
+            print(f"Uptime (actual/measured): {pie['uptime_ratio_actual']:.1f}%")
             print(f"Uptime: {pie['uptime']/3600:.1f}h")
             print(f"Downtime: {pie['downtime']/3600:.1f}h")
             print(f"No data: {pie['noData']/3600:.1f}h")
 
         # Fetch specific month uptime
         pie_result = await client.async_fetch_uptime_pie(period="2026-01")
-        if pie_result["uptime_ratio"]:
-            print(f"January 2026 uptime: {pie_result['uptime_ratio']:.2f}%")
+        if pie_result["uptime_ratio_total"]:
+            print(f"January 2026 uptime (total): {pie_result['uptime_ratio_total']:.2f}%")
+            print(f"January 2026 uptime (actual): {pie_result['uptime_ratio_actual']:.2f}%")
 ```
 
 ## Error Handling

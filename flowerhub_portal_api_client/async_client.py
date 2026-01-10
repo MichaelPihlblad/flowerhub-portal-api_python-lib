@@ -1047,7 +1047,7 @@ class AsyncFlowerhubClient:
             "error": None,
         }
 
-    async def async_fetch_uptime_pie(  # pylint: disable=too-many-locals
+    async def async_fetch_uptime_pie(  # pylint: disable=too-many-locals,too-many-branches
         self,
         asset_id: Optional[int] = None,
         *,
@@ -1066,7 +1066,7 @@ class AsyncFlowerhubClient:
             timeout_total: Optional total timeout override in seconds.
 
         Returns:
-            UptimePieResult: `{status_code, uptime, downtime, noData, uptime_ratio, json, text, error}`.
+            UptimePieResult: `{status_code, uptime, downtime, noData, uptime_ratio_total, uptime_ratio_actual, json, text, error}`.
 
         Raises:
             ValueError: If asset id is not provided or period format is invalid.
@@ -1110,7 +1110,8 @@ class AsyncFlowerhubClient:
         uptime = None
         downtime = None
         no_data = None
-        uptime_ratio = None
+        uptime_ratio_total = None
+        uptime_ratio_actual = None
 
         if data_list is not None:
             # Parse raw list to extract seconds for each category
@@ -1126,11 +1127,17 @@ class AsyncFlowerhubClient:
                 elif name == "noData":
                     no_data = value
 
-            # Calculate uptime ratio if we have data
+            # Calculate uptime ratios if we have data
             if uptime is not None or downtime is not None or no_data is not None:
+                # Ratio of entire period (including noData)
                 total = (uptime or 0.0) + (downtime or 0.0) + (no_data or 0.0)
                 if total > 0:
-                    uptime_ratio = ((uptime or 0.0) / total) * 100.0
+                    uptime_ratio_total = ((uptime or 0.0) / total) * 100.0
+
+                # Ratio of measured data only (excluding noData)
+                actual_total = (uptime or 0.0) + (downtime or 0.0)
+                if actual_total > 0:
+                    uptime_ratio_actual = ((uptime or 0.0) / actual_total) * 100.0
 
         if data_list is None and err:
             return {
@@ -1138,7 +1145,8 @@ class AsyncFlowerhubClient:
                 "uptime": None,
                 "downtime": None,
                 "noData": None,
-                "uptime_ratio": None,
+                "uptime_ratio_total": None,
+                "uptime_ratio_actual": None,
                 "json": data,
                 "text": text,
                 "error": err,
@@ -1148,7 +1156,8 @@ class AsyncFlowerhubClient:
             "uptime": uptime,
             "downtime": downtime,
             "noData": no_data,
-            "uptime_ratio": uptime_ratio,
+            "uptime_ratio_total": uptime_ratio_total,
+            "uptime_ratio_actual": uptime_ratio_actual,
             "json": data,
             "text": text,
             "error": None,

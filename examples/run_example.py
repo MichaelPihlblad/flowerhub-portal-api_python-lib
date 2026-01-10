@@ -158,12 +158,18 @@ async def async_main():
                 f"  ✓ /asset/{client.asset_id}: status {asset_resp.get('status_code', '?')}, connection_status={conn_status!r}, message={conn_message!r}"
             )
         if uptime_pie_resp:
-            ratio = uptime_pie_resp.get("uptime_ratio")
-            ratio_str = f"{ratio:.1f}%" if ratio is not None else "N/A"
+            ratio_total = uptime_pie_resp.get("uptime_ratio_total")
+            ratio_actual = uptime_pie_resp.get("uptime_ratio_actual")
+            ratio_total_str = (
+                f"{ratio_total:.1f}%" if ratio_total is not None else "N/A"
+            )
+            ratio_actual_str = (
+                f"{ratio_actual:.1f}%" if ratio_actual is not None else "N/A"
+            )
             uptime_secs = uptime_pie_resp.get("uptime")
             downtime_secs = uptime_pie_resp.get("downtime")
             print(
-                f"  ✓ uptime_pie: {ratio_str} uptime ratio, uptime={uptime_secs}s, downtime={downtime_secs}s"
+                f"  ✓ uptime_pie: {ratio_total_str} total (period), {ratio_actual_str} actual (measured), uptime={uptime_secs}s, downtime={downtime_secs}s"
             )
 
         # Fetch all other endpoints

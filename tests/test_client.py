@@ -942,8 +942,12 @@ def test_fetch_uptime_pie_success():
         assert result["uptime"] == 2500000
         assert result["downtime"] == 5000
         assert result["noData"] == 0
-        assert result["uptime_ratio"] is not None
-        assert result["uptime_ratio"] > 99.0  # Should be very high uptime
+        assert result["uptime_ratio_total"] is not None
+        assert result["uptime_ratio_total"] > 99.0  # Should be very high uptime
+        assert result["uptime_ratio_actual"] is not None
+        assert (
+            result["uptime_ratio_actual"] > 99.0
+        )  # Should be very high when excluding noData
 
     run(_run())
 
@@ -1006,7 +1010,7 @@ def test_fetch_uptime_pie_missing_or_invalid_period():
         result = await client.async_fetch_uptime_pie()
         assert result["status_code"] == 200
         assert result["uptime"] == 2500000
-        assert result["uptime_ratio"] is not None
+        assert result["uptime_ratio_total"] is not None
 
         # Invalid blank period should raise ValueError
         try:
