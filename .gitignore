@@ -15,3 +15,4 @@ flowerhub_client.egg-info
 .coverage
 
 site
+build
