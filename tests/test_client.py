@@ -734,7 +734,7 @@ def test_fetch_uptime_available_months_success():
         {"value": "2025-05", "label": "May 2025"},
     ]
     sess.add_response(
-        base + f"/asset-uptime/available-months/{asset_id}",
+        base + f"/asset-effective-uptime/available-months/{asset_id}",
         DummyResp(status=200, json_data=months_json, text="["),
     )
 
@@ -759,7 +759,7 @@ def test_fetch_uptime_available_months_non_list_payload():
     asset_id = 123
     # Endpoint returns non-list unexpectedly
     sess.add_response(
-        base + f"/asset-uptime/available-months/{asset_id}",
+        base + f"/asset-effective-uptime/available-months/{asset_id}",
         DummyResp(status=200, json_data={"value": "2025-03"}, text="{"),
     )
 
@@ -800,7 +800,7 @@ def test_fetch_uptime_history_success():
         {"date": "2025-05", "uptime": 92},
     ]
     sess.add_response(
-        base + f"/asset-uptime/bar-chart/history/{asset_id}",
+        base + f"/asset-effective-uptime/bar-chart/history/{asset_id}",
         DummyResp(status=200, json_data=history_json, text="["),
     )
 
@@ -825,7 +825,7 @@ def test_fetch_uptime_history_non_list_payload():
     asset_id = 601
     # Endpoint returns non-list unexpectedly
     sess.add_response(
-        base + f"/asset-uptime/bar-chart/history/{asset_id}",
+        base + f"/asset-effective-uptime/bar-chart/history/{asset_id}",
         DummyResp(status=200, json_data={"date": "2025-03"}, text="{"),
     )
 
@@ -929,7 +929,7 @@ def test_fetch_uptime_pie_success():
     ]
     # Match by prefix; omit query to allow startswith() to match
     sess.add_response(
-        base + f"/asset-uptime/pie-chart/{asset_id}",
+        base + f"/asset-effective-uptime/pie-chart/{asset_id}",
         DummyResp(status=200, json_data=slices_json, text="["),
     )
 
@@ -957,7 +957,7 @@ def test_fetch_uptime_pie_non_list_payload():
     base = "https://api.portal.flowerhub.se"
     asset_id = 701
     sess.add_response(
-        base + f"/asset-uptime/pie-chart/{asset_id}",
+        base + f"/asset-effective-uptime/pie-chart/{asset_id}",
         DummyResp(status=200, json_data={"name": "uptime"}, text="{"),
     )
 
@@ -1004,7 +1004,7 @@ def test_fetch_uptime_pie_missing_or_invalid_period():
             {"name": "uptime", "value": 2500000},
         ]
         sess.add_response(
-            base + f"/asset-uptime/pie-chart/{asset_id}",
+            base + f"/asset-effective-uptime/pie-chart/{asset_id}",
             DummyResp(status=200, json_data=slices_json, text="["),
         )
         result = await client.async_fetch_uptime_pie()

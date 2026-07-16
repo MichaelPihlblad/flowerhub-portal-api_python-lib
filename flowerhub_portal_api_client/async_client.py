@@ -949,7 +949,7 @@ class AsyncFlowerhubClient:
         if not aid:
             _LOGGER.error("Cannot fetch uptime months: asset_id not set")
             raise ValueError("asset_id is required for uptime available months fetch")
-        path = f"/asset-uptime/available-months/{aid}"
+        path = f"/asset-effective-uptime/available-months/{aid}"
         url = self._build_url(path)
         resp, data, text = await self._request(
             path,
@@ -1012,7 +1012,7 @@ class AsyncFlowerhubClient:
         if not aid:
             _LOGGER.error("Cannot fetch uptime history: asset_id not set")
             raise ValueError("asset_id is required for uptime history fetch")
-        path = f"/asset-uptime/bar-chart/history/{aid}"
+        path = f"/asset-effective-uptime/bar-chart/history/{aid}"
         url = self._build_url(path)
         resp, data, text = await self._request(
             path,
@@ -1089,7 +1089,7 @@ class AsyncFlowerhubClient:
                 "period must be a valid YYYY-MM string for uptime pie fetch"
             )
         # Compose path including query parameter
-        path = f"/asset-uptime/pie-chart/{aid}?period={period}"
+        path = f"/asset-effective-uptime/pie-chart/{aid}?period={period}"
         url = self._build_url(path)
         resp, data, text = await self._request(
             path,
