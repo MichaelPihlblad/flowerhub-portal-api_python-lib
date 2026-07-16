@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.1] - 2026-07-16
+
+### Fixed
+- Updated uptime endpoint paths from `/asset-uptime/` to `/asset-effective-uptime/` to match Flowerhub API breaking change migration performed July 2026.
+  - `async_fetch_available_uptime_months()` now uses `/asset-effective-uptime/available-months/`
+  - `async_fetch_uptime_history()` now uses `/asset-effective-uptime/bar-chart/history/`
+  - `async_fetch_uptime_pie()` now uses `/asset-effective-uptime/pie-chart/`
+- Resolves 404 errors reported by Home Assistant integration users
+
 ## [1.0.0] - 2026-01-10
 
 ### Added
